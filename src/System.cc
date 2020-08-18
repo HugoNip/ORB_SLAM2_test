@@ -42,6 +42,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
 
     cout << "Input sensor was set to: ";
 
+    // Input sensor
     if(mSensor==MONOCULAR)
         cout << "Monocular" << endl;
     else if(mSensor==STEREO)
@@ -49,7 +50,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     else if(mSensor==RGBD)
         cout << "RGB-D" << endl;
 
-    //Check settings file
+    // Check settings file, Load setting files from strSettingsFile
     cv::FileStorage fsSettings(strSettingsFile.c_str(), cv::FileStorage::READ);
     if(!fsSettings.isOpened())
     {
@@ -58,7 +59,7 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     }
 
 
-    //Load ORB Vocabulary
+    // Load ORB Vocabulary from strVocFile
     cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
 
     mpVocabulary = new ORBVocabulary();
@@ -71,32 +72,58 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     }
     cout << "Vocabulary loaded!" << endl << endl;
 
-    //Create KeyFrame Database
+    /**
+     * Create KeyFrame Database based on ORB vocabulary
+     * KeyFrame database for place recognition (relocalization and loop detection).
+     *
+     * class KeyFrameDatabase
+     * incuding:
+     * 1) Loop Detection
+     *    std::vector<KeyFrame *> DetectLoopCandidates(KeyFrame* pKF, float minScore);
+     * 2) Relocalization
+     *    std::vector<KeyFrame*> DetectRelocalizationCandidates(Frame* F);
+     */
     mpKeyFrameDatabase = new KeyFrameDatabase(*mpVocabulary);
 
-    //Create the Map
+    /**
+     * Create the Map
+     * Map structure that stores the pointers to all KeyFrames and MapPoints.
+     */
     mpMap = new Map();
 
     //Create Drawers. These are used by the Viewer
-    mpFrameDrawer = new FrameDrawer(mpMap);
-    mpMapDrawer = new MapDrawer(mpMap, strSettingsFile);
+    mpFrameDrawer = new FrameDrawer(mpMap); // draw keyframes
+    mpMapDrawer = new MapDrawer(mpMap, strSettingsFile); // draw map
 
-    //Initialize the Tracking thread
-    //(it will live in the main thread of execution, the one that called this constructor)
+    /**
+     * Initialize the Tracking thread
+     * (it will live in the main thread of execution, the one that called this constructor)
+     */    
     mpTracker = new Tracking(this, mpVocabulary, mpFrameDrawer, mpMapDrawer,
                              mpMap, mpKeyFrameDatabase, strSettingsFile, mSensor);
 
-    //Initialize the Local Mapping thread and launch
+    /**
+     * Initialize the Local Mapping thread and launch
+     * ---------------------------------
+     * Local Mapper. 
+     * It manages the local map and performs local bundle adjustment.
+     */
     mpLocalMapper = new LocalMapping(mpMap, mSensor==MONOCULAR);
     mptLocalMapping = new thread(&ORB_SLAM2::LocalMapping::Run,mpLocalMapper);
 
-    //Initialize the Loop Closing thread and launch
+    /**
+     * Initialize the Loop Closing thread and launch
+     * ---------------------------------
+     * Loop Closer. It searches loops with every new keyframe. If there is a loop it performs
+     * a pose graph optimization and full bundle adjustment (in a new thread) afterwards.
+     */
     mpLoopCloser = new LoopClosing(mpMap, mpKeyFrameDatabase, mpVocabulary, mSensor!=MONOCULAR);
     mptLoopClosing = new thread(&ORB_SLAM2::LoopClosing::Run, mpLoopCloser);
 
-    //Initialize the Viewer thread and launch
-    if(bUseViewer)
+    // Initialize the Viewer thread and launch
+    if(bUseViewer) // open Viewer
     {
+        // mpViewer: The viewer draws the map and the current camera pose. It uses Pangolin.
         mpViewer = new Viewer(this, mpFrameDrawer,mpMapDrawer,mpTracker,strSettingsFile);
         mptViewer = new thread(&Viewer::Run, mpViewer);
         mpTracker->SetViewer(mpViewer);
@@ -124,9 +151,14 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
     // Check mode change
     {
         unique_lock<mutex> lock(mMutexMode);
-        if(mbActivateLocalizationMode)
+
+        /**
+         * Activate Only Localization Mode
+         * This stops local mapping thread (map building) and performs only camera tracking.
+         */
+        if(mbActivateLocalizationMode) 
         {
-            mpLocalMapper->RequestStop();
+            mpLocalMapper->RequestStop(); // Stop building local map
 
             // Wait until Local Mapping has effectively stopped
             while(!mpLocalMapper->isStopped())
@@ -134,9 +166,13 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
                 usleep(1000);
             }
 
-            mpTracker->InformOnlyTracking(true);
+            mpTracker->InformOnlyTracking(true); // set to only localization mode
             mbActivateLocalizationMode = false;
         }
+
+        /**
+         * This resumes local mapping thread and performs SLAM again.
+         */
         if(mbDeactivateLocalizationMode)
         {
             mpTracker->InformOnlyTracking(false);
@@ -148,13 +184,14 @@ cv::Mat System::TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const
     // Check reset
     {
     unique_lock<mutex> lock(mMutexReset);
-    if(mbReset)
+    if(mbReset) // reset
     {
         mpTracker->Reset();
         mbReset = false;
     }
     }
 
+    // Implement stereo tracking
     cv::Mat Tcw = mpTracker->GrabImageStereo(imLeft,imRight,timestamp);
 
     unique_lock<mutex> lock2(mMutexState);
@@ -175,6 +212,7 @@ cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const doub
     // Check mode change
     {
         unique_lock<mutex> lock(mMutexMode);
+
         if(mbActivateLocalizationMode)
         {
             mpLocalMapper->RequestStop();
@@ -188,6 +226,7 @@ cv::Mat System::TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const doub
             mpTracker->InformOnlyTracking(true);
             mbActivateLocalizationMode = false;
         }
+
         if(mbDeactivateLocalizationMode)
         {
             mpTracker->InformOnlyTracking(false);
@@ -226,6 +265,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
     // Check mode change
     {
         unique_lock<mutex> lock(mMutexMode);
+
         if(mbActivateLocalizationMode)
         {
             mpLocalMapper->RequestStop();
@@ -239,6 +279,7 @@ cv::Mat System::TrackMonocular(const cv::Mat &im, const double &timestamp)
             mpTracker->InformOnlyTracking(true);
             mbActivateLocalizationMode = false;
         }
+
         if(mbDeactivateLocalizationMode)
         {
             mpTracker->InformOnlyTracking(false);

@@ -59,23 +59,41 @@ public:
 
 public:
 
+    /**
+     * There are 4 main functions
+     * 1) System
+     * 2) TrackStereo
+     * 3) TrackRGBD
+     * 4) TrackMonocular
+     */
+
     // Initialize the SLAM system. It launches the Local Mapping, Loop Closing and Viewer threads.
     System(const string &strVocFile, const string &strSettingsFile, const eSensor sensor, const bool bUseViewer = true);
 
-    // Proccess the given stereo frame. Images must be synchronized and rectified.
-    // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
-    // Returns the camera pose (empty if tracking fails).
+    /**
+     * Proccess the given stereo frame. Images must be synchronized and rectified.
+     *
+     * @param imLeft Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
+     * @param imRight Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
+     * @return the camera pose (empty if tracking fails).
+     */
     cv::Mat TrackStereo(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timestamp);
 
-    // Process the given rgbd frame. Depthmap must be registered to the RGB frame.
-    // Input image: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
-    // Input depthmap: Float (CV_32F).
-    // Returns the camera pose (empty if tracking fails).
+    /**
+     * Process the given rgbd frame. Depthmap must be registered to the RGB frame.
+     *
+     * @param im Input image: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
+     * @param depthmap Input depthmap: Float (CV_32F).
+     * @return the camera pose (empty if tracking fails).
+     */
     cv::Mat TrackRGBD(const cv::Mat &im, const cv::Mat &depthmap, const double &timestamp);
 
-    // Proccess the given monocular frame
-    // Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
-    // Returns the camera pose (empty if tracking fails).
+    /**
+     * Proccess the given monocular frame
+     *
+     * @param im Input images: RGB (CV_8UC3) or grayscale (CV_8U). RGB is converted to grayscale.
+     * @return the camera pose (empty if tracking fails).
+     */
     cv::Mat TrackMonocular(const cv::Mat &im, const double &timestamp);
 
     // This stops local mapping thread (map building) and performs only camera tracking.
@@ -137,9 +155,11 @@ private:
     // Map structure that stores the pointers to all KeyFrames and MapPoints.
     Map* mpMap;
 
-    // Tracker. It receives a frame and computes the associated camera pose.
-    // It also decides when to insert a new keyframe, create some new MapPoints and
-    // performs relocalization if tracking fails.
+    /**
+     * Tracker. It receives a frame and computes the associated camera pose.
+     * It also decides when to insert a new keyframe, create some new MapPoints and
+     * performs relocalization if tracking fails.
+     */
     Tracking* mpTracker;
 
     // Local Mapper. It manages the local map and performs local bundle adjustment.
@@ -177,6 +197,6 @@ private:
     std::mutex mMutexState;
 };
 
-}// namespace ORB_SLAM
+} // namespace ORB_SLAM
 
 #endif // SYSTEM_H

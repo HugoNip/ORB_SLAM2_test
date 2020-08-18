@@ -556,7 +556,7 @@ void Frame::ComputeStereoMatches()
             const float scaleFactor = mvInvScaleFactors[kpL.octave];
             const float scaleduL = round(kpL.pt.x*scaleFactor);
             const float scaledvL = round(kpL.pt.y*scaleFactor);
-            const float scaleduR0 = round(uR0*scaleFactor);
+            const float scaleduR0 = round(uR0*scaleFactor); // best matching point
 
             // sliding window search
             const int w = 5;
