@@ -98,14 +98,20 @@ KeyFrame* MapPoint::GetReferenceKeyFrame()
 void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
 {
     unique_lock<mutex> lock(mMutexFeatures);
+
+    // if this keyframe has been in current observatons
     if(mObservations.count(pKF))
         return;
+    
+    // add this keyframe into mObservations and store the index of landmark in map type
+    // std::map<KeyFrame*,size_t> mObservations;
     mObservations[pKF]=idx;
 
+    // const std::vector<float> mvuRight; // negative value for monocular points
     if(pKF->mvuRight[idx]>=0)
-        nObs+=2;
+        nObs+=2; // stereo
     else
-        nObs++;
+        nObs++; // monocular
 }
 
 void MapPoint::EraseObservation(KeyFrame* pKF)

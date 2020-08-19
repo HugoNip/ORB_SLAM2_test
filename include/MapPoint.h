@@ -35,12 +35,30 @@ class KeyFrame;
 class Map;
 class Frame;
 
-
+/**
+ * image->points' descriptor/feature->landmarks
+ * 
+ * images->select keyframes->select keypoints->descriptor->point matching, multiple points for one landmark/mappoint->optimization for map+camera pose
+ * 
+ * landmark/mappoint in 3D space, containing keypoints and generic points
+ * information including:
+ * position: x, y, z
+ * descriptor
+ */
 class MapPoint
 {
 public:
-    MapPoint(const cv::Mat &Pos, KeyFrame* pRefKF, Map* pMap);
-    MapPoint(const cv::Mat &Pos,  Map* pMap, Frame* pFrame, const int &idxF);
+    /**
+     * A landmark will be observed in several keyframes
+     * In ORB SLAM, use MapPoint class to compute Covisibility (local BA) 
+     * 
+     * @param Pos 3D position
+     * @param pRefKF reference keyframes
+     * @param pFrame generic frames
+     * @param pMap map
+     */
+    MapPoint(const cv::Mat &Pos, KeyFrame* pRefKF, Map* pMap); // for keyframes
+    MapPoint(const cv::Mat &Pos,  Map* pMap, Frame* pFrame, const int &idxF); // for generic frames
 
     void SetWorldPos(const cv::Mat &Pos);
     cv::Mat GetWorldPos();
@@ -51,15 +69,33 @@ public:
     std::map<KeyFrame*,size_t> GetObservations();
     int Observations();
 
+    /**
+     * add more observation information for 3D keypoints to make it be more accurate
+     * the information is provided by added keyframe which includes 2D information (x,y)
+     * 
+     * @param pKF 
+     * @param idx index of the landmark in the keyframe
+     */
     void AddObservation(KeyFrame* pKF,size_t idx);
+
+    /**
+     * delete observation information
+     */
     void EraseObservation(KeyFrame* pKF);
+
 
     int GetIndexInKeyFrame(KeyFrame* pKF);
     bool IsInKeyFrame(KeyFrame* pKF);
 
+    /**
+     * delete mappoint
+     */
     void SetBadFlag();
     bool isBad();
 
+    /**
+     * replace mappoint
+     */
     void Replace(MapPoint* pMP);    
     MapPoint* GetReplaced();
 
@@ -70,14 +106,21 @@ public:
         return mnFound;
     }
 
+    /**
+     * generate descriptor
+     */
     void ComputeDistinctiveDescriptors();
 
     cv::Mat GetDescriptor();
 
+    /**
+     * update normal vector and depth
+     */
     void UpdateNormalAndDepth();
 
     float GetMinDistanceInvariance();
     float GetMaxDistanceInvariance();
+
     int PredictScale(const float &currentDist, KeyFrame*pKF);
     int PredictScale(const float &currentDist, Frame* pF);
 
@@ -86,7 +129,7 @@ public:
     static long unsigned int nNextId;
     long int mnFirstKFid;
     long int mnFirstFrame;
-    int nObs;
+    int nObs; // number of observations of mappoints, stereo+2/monocular+1
 
     // Variables used by the tracking
     float mTrackProjX;
