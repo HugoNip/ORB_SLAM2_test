@@ -129,7 +129,7 @@ public:
     static long unsigned int nNextId;
     long int mnFirstKFid;
     long int mnFirstFrame;
-    int nObs; // number of observations of mappoints, stereo+2/monocular+1
+    int nObs; // times that mappoint is observed, stereo+2/monocular+1
 
     // Variables used by the tracking
     float mTrackProjX;
@@ -161,6 +161,7 @@ protected:
      cv::Mat mWorldPos;
 
      // Keyframes observing the point and associated index in keyframe
+     // a mappoint has many observations
      std::map<KeyFrame*,size_t> mObservations;
 
      // Mean viewing direction

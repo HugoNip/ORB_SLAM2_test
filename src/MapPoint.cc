@@ -95,15 +95,19 @@ KeyFrame* MapPoint::GetReferenceKeyFrame()
     return mpRefKF;
 }
 
+/**
+ * @param pKF
+ * @param idx associated index in keyframe
+ */
 void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
 {
     unique_lock<mutex> lock(mMutexFeatures);
 
-    // if this keyframe has been in current observatons
+    // whether or not this keyframe has been in current observatons
     if(mObservations.count(pKF))
         return;
     
-    // add this keyframe into mObservations and store the index of landmark in map type
+    // add this keyframe into mObservations and store the index of mappoint in map type
     // std::map<KeyFrame*,size_t> mObservations;
     mObservations[pKF]=idx;
 
@@ -114,14 +118,17 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
         nObs++; // monocular
 }
 
+// for which mappoint?
 void MapPoint::EraseObservation(KeyFrame* pKF)
 {
     bool bBad=false;
     {
         unique_lock<mutex> lock(mMutexFeatures);
+        // whether or not this keyframe (pKF) has been in current observatons
         if(mObservations.count(pKF))
         {
-            int idx = mObservations[pKF];
+            int idx = mObservations[pKF]; // index of mappoint
+            // delete number of observations for this mappoint
             if(pKF->mvuRight[idx]>=0)
                 nObs-=2;
             else
@@ -129,6 +136,12 @@ void MapPoint::EraseObservation(KeyFrame* pKF)
 
             mObservations.erase(pKF);
 
+            /**
+             * whether or not this keyframe is Reference KeyFrame
+             * if true, reset Reference KeyFrame again
+             * if not reset, after deleting this keyFrame,
+             * there is no Reference KeyFrame
+             */
             if(mpRefKF==pKF)
                 mpRefKF=mObservations.begin()->first;
 
@@ -162,6 +175,7 @@ void MapPoint::SetBadFlag()
         unique_lock<mutex> lock2(mMutexPos);
         mbBad=true;
         obs = mObservations;
+        // clear all observations for this mappoint
         mObservations.clear();
     }
     for(map<KeyFrame*,size_t>::iterator mit=obs.begin(), mend=obs.end(); mit!=mend; mit++)
@@ -182,6 +196,7 @@ MapPoint* MapPoint::GetReplaced()
 
 void MapPoint::Replace(MapPoint* pMP)
 {
+    // if the same one
     if(pMP->mnId==this->mnId)
         return;
 
@@ -203,13 +218,16 @@ void MapPoint::Replace(MapPoint* pMP)
         // Replace measurement in keyframe
         KeyFrame* pKF = mit->first;
 
+        // mappoint does not find the corresponding observations in keyframes
         if(!pMP->IsInKeyFrame(pKF))
         {
+            // add new observations
             pKF->ReplaceMapPointMatch(mit->second, pMP);
             pMP->AddObservation(pKF,mit->second);
         }
         else
-        {
+        {   
+            // delete old observations
             pKF->EraseMapPointMatch(mit->second);
         }
     }
@@ -217,6 +235,7 @@ void MapPoint::Replace(MapPoint* pMP)
     pMP->IncreaseVisible(nvisible);
     pMP->ComputeDistinctiveDescriptors();
 
+    // replace old mappoint
     mpMap->EraseMapPoint(this);
 }
 
@@ -264,11 +283,15 @@ void MapPoint::ComputeDistinctiveDescriptors()
 
     vDescriptors.reserve(observations.size());
 
+    // a mappoint -> many keyframes -> many observations
+    // observation <-> keyframe
     for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
     {
         KeyFrame* pKF = mit->first;
 
         if(!pKF->isBad())
+        // different descriptors come from different keyframes
+        // so the matching point can be found
             vDescriptors.push_back(pKF->mDescriptors.row(mit->second));
     }
 
@@ -299,7 +322,8 @@ void MapPoint::ComputeDistinctiveDescriptors()
         sort(vDists.begin(),vDists.end());
         int median = vDists[0.5*(N-1)];
 
-        if(median<BestMedian)
+        // choose the minimum
+        if(median<BestMedian) 
         {
             BestMedian = median;
             BestIdx = i;
@@ -322,7 +346,7 @@ int MapPoint::GetIndexInKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexFeatures);
     if(mObservations.count(pKF))
-        return mObservations[pKF];
+        return mObservations[pKF]; // idx
     else
         return -1;
 }
@@ -357,7 +381,9 @@ void MapPoint::UpdateNormalAndDepth()
     {
         KeyFrame* pKF = mit->first;
         cv::Mat Owi = pKF->GetCameraCenter();
-        cv::Mat normali = mWorldPos - Owi;
+        // normal vector, observation direction
+        // camera center points to mappoint
+        cv::Mat normali = mWorldPos - Owi; 
         normal = normal + normali/cv::norm(normali);
         n++;
     }
@@ -368,11 +394,19 @@ void MapPoint::UpdateNormalAndDepth()
     const float levelScaleFactor =  pRefKF->mvScaleFactors[level];
     const int nLevels = pRefKF->mnScaleLevels;
 
+    // 深度范围 [mfMinDistance, mfMaxDistance]
+    // 地图点到参考帧（只有一帧）相机中心距离，
+    // 乘上参考帧中描述子获取金字塔放大尺度，得到最大距离mfMaxDistance;
+    // 最大距离除以整个金字塔最高层的放大尺度得到最小距离mfMinDistance.
+    // 通常说来，距离较近的地图点，将在金字塔较高的地方提出，
+    // 距离较远的地图点，在金字塔层数较低的地方提取出（金字塔层数越低，分辨率越高，才能识别出远点）
+    // 因此，通过地图点的信息（主要对应描述子），我们可以获得该地图点对应的金字塔层级
+    // 从而预测该地图点在什么范围内能够被观测到
     {
         unique_lock<mutex> lock3(mMutexPos);
         mfMaxDistance = dist*levelScaleFactor;
         mfMinDistance = mfMaxDistance/pRefKF->mvScaleFactors[nLevels-1];
-        mNormalVector = normal/n;
+        mNormalVector = normal/n; // updated normal vector
     }
 }
 
