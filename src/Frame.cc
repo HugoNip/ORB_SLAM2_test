@@ -37,18 +37,36 @@ Frame::Frame()
 
 //Copy Constructor
 Frame::Frame(const Frame &frame)
-    :mpORBvocabulary(frame.mpORBvocabulary), mpORBextractorLeft(frame.mpORBextractorLeft), mpORBextractorRight(frame.mpORBextractorRight),
-     mTimeStamp(frame.mTimeStamp), mK(frame.mK.clone()), mDistCoef(frame.mDistCoef.clone()),
-     mbf(frame.mbf), mb(frame.mb), mThDepth(frame.mThDepth), N(frame.N), mvKeys(frame.mvKeys),
-     mvKeysRight(frame.mvKeysRight), mvKeysUn(frame.mvKeysUn),  mvuRight(frame.mvuRight),
-     mvDepth(frame.mvDepth), mBowVec(frame.mBowVec), mFeatVec(frame.mFeatVec),
-     mDescriptors(frame.mDescriptors.clone()), mDescriptorsRight(frame.mDescriptorsRight.clone()),
-     mvpMapPoints(frame.mvpMapPoints), mvbOutlier(frame.mvbOutlier), mnId(frame.mnId),
-     mpReferenceKF(frame.mpReferenceKF), mnScaleLevels(frame.mnScaleLevels),
-     mfScaleFactor(frame.mfScaleFactor), mfLogScaleFactor(frame.mfLogScaleFactor),
-     mvScaleFactors(frame.mvScaleFactors), mvInvScaleFactors(frame.mvInvScaleFactors),
-     mvLevelSigma2(frame.mvLevelSigma2), mvInvLevelSigma2(frame.mvInvLevelSigma2)
-{
+    :mpORBvocabulary(frame.mpORBvocabulary), 
+     mpORBextractorLeft(frame.mpORBextractorLeft), 
+     mpORBextractorRight(frame.mpORBextractorRight),
+     mTimeStamp(frame.mTimeStamp), 
+     mK(frame.mK.clone()), 
+     mDistCoef(frame.mDistCoef.clone()),
+     mbf(frame.mbf), 
+     mb(frame.mb), 
+     mThDepth(frame.mThDepth), 
+     N(frame.N), 
+     mvKeys(frame.mvKeys),
+     mvKeysRight(frame.mvKeysRight), 
+     mvKeysUn(frame.mvKeysUn), 
+     mvuRight(frame.mvuRight),
+     mvDepth(frame.mvDepth), 
+     mBowVec(frame.mBowVec), 
+     mFeatVec(frame.mFeatVec),
+     mDescriptors(frame.mDescriptors.clone()), 
+     mDescriptorsRight(frame.mDescriptorsRight.clone()),
+     mvpMapPoints(frame.mvpMapPoints), 
+     mvbOutlier(frame.mvbOutlier), 
+     mnId(frame.mnId),
+     mpReferenceKF(frame.mpReferenceKF), 
+     mnScaleLevels(frame.mnScaleLevels),
+     mfScaleFactor(frame.mfScaleFactor), 
+     mfLogScaleFactor(frame.mfLogScaleFactor),
+     mvScaleFactors(frame.mvScaleFactors), 
+     mvInvScaleFactors(frame.mvInvScaleFactors),
+     mvLevelSigma2(frame.mvLevelSigma2), 
+     mvInvLevelSigma2(frame.mvInvLevelSigma2) {
     for(int i=0;i<FRAME_GRID_COLS;i++)
         for(int j=0; j<FRAME_GRID_ROWS; j++)
             mGrid[i][j]=frame.mGrid[i][j];
@@ -57,11 +75,25 @@ Frame::Frame(const Frame &frame)
         SetPose(frame.mTcw);
 }
 
-
-Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp, ORBextractor* extractorLeft, ORBextractor* extractorRight, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
-    :mpORBvocabulary(voc),mpORBextractorLeft(extractorLeft),mpORBextractorRight(extractorRight), mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth),
-     mpReferenceKF(static_cast<KeyFrame*>(NULL))
-{
+// stereo
+Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, 
+             const double &timeStamp, 
+             ORBextractor* extractorLeft, 
+             ORBextractor* extractorRight, 
+             ORBVocabulary* voc, 
+             cv::Mat &K, // camera intrinsics
+             cv::Mat &distCoef, 
+             const float &bf, 
+             const float &thDepth) // threshold of depth
+    :mpORBvocabulary(voc), 
+     mpORBextractorLeft(extractorLeft),
+     mpORBextractorRight(extractorRight), 
+     mTimeStamp(timeStamp), 
+     mK(K.clone()),
+     mDistCoef(distCoef.clone()), 
+     mbf(bf), 
+     mThDepth(thDepth),
+     mpReferenceKF(static_cast<KeyFrame*>(NULL)) {
     // Frame ID
     mnId=nNextId++;
 
@@ -87,6 +119,8 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
 
     UndistortKeyPoints();
 
+    // compute matches, 
+    // store depth, left + right coordinates of keypoints
     ComputeStereoMatches();
 
     mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));    
@@ -116,10 +150,24 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeSt
     AssignFeaturesToGrid();
 }
 
-Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
-    :mpORBvocabulary(voc),mpORBextractorLeft(extractor),mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
-     mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth)
-{
+// RGBD
+Frame::Frame(const cv::Mat &imGray, 
+             const cv::Mat &imDepth, 
+             const double &timeStamp, 
+             ORBextractor* extractor,
+             ORBVocabulary* voc, 
+             cv::Mat &K, 
+             cv::Mat &distCoef, 
+             const float &bf, 
+             const float &thDepth)
+    :mpORBvocabulary(voc),
+     mpORBextractorLeft(extractor),
+     mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
+     mTimeStamp(timeStamp), 
+     mK(K.clone()),
+     mDistCoef(distCoef.clone()), 
+     mbf(bf), 
+     mThDepth(thDepth) {
     // Frame ID
     mnId=nNextId++;
 
@@ -170,11 +218,23 @@ Frame::Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeSt
     AssignFeaturesToGrid();
 }
 
-
-Frame::Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth)
-    :mpORBvocabulary(voc),mpORBextractorLeft(extractor),mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
-     mTimeStamp(timeStamp), mK(K.clone()),mDistCoef(distCoef.clone()), mbf(bf), mThDepth(thDepth)
-{
+// monocular
+Frame::Frame(const cv::Mat &imGray, 
+             const double &timeStamp, 
+             ORBextractor* extractor,
+             ORBVocabulary* voc, 
+             cv::Mat &K, 
+             cv::Mat &distCoef, 
+             const float &bf, 
+             const float &thDepth)
+    :mpORBvocabulary(voc),
+     mpORBextractorLeft(extractor),
+     mpORBextractorRight(static_cast<ORBextractor*>(NULL)),
+     mTimeStamp(timeStamp), 
+     mK(K.clone()),
+     mDistCoef(distCoef.clone()), 
+     mbf(bf), 
+     mThDepth(thDepth) {
     // Frame ID
     mnId=nNextId++;
 
@@ -246,9 +306,9 @@ void Frame::AssignFeaturesToGrid()
 
 void Frame::ExtractORB(int flag, const cv::Mat &im)
 {
-    if(flag==0)
+    if(flag==0) // left
         (*mpORBextractorLeft)(im,cv::Mat(),mvKeys,mDescriptors);
-    else
+    else // right
         (*mpORBextractorRight)(im,cv::Mat(),mvKeysRight,mDescriptorsRight);
 }
 
@@ -268,6 +328,12 @@ void Frame::UpdatePoseMatrices()
 
 bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 {
+    /**
+     * 1. coordinate (u, v) in the image
+     * 2. distance between camera center and mappoint
+     * 3. view angle
+     * 4. scale
+     */
     pMP->mbTrackInView = false;
 
     // 3D in absolute coordinates
@@ -283,7 +349,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     if(PcZ<0.0f)
         return false;
 
-    // Project in image and check it is not outside
+    // Project in image (u, v) and check it is not outside
     const float invz = 1.0f/PcZ;
     const float u=fx*PcX*invz+cx;
     const float v=fy*PcY*invz+cy;
@@ -296,8 +362,8 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     // Check distance is in the scale invariance region of the MapPoint
     const float maxDistance = pMP->GetMaxDistanceInvariance();
     const float minDistance = pMP->GetMinDistanceInvariance();
-    const cv::Mat PO = P-mOw;
-    const float dist = cv::norm(PO);
+    const cv::Mat PO = P-mOw; // vector from camera center to mappoint
+    const float dist = cv::norm(PO); // absolute L2 norm
 
     if(dist<minDistance || dist>maxDistance)
         return false;
@@ -311,12 +377,14 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
         return false;
 
     // Predict scale in the image
+    // 
     const int nPredictedLevel = pMP->PredictScale(dist,this);
 
     // Data used by the tracking
+    // if mappoint is in the view, this mappoint will be used by tracking
     pMP->mbTrackInView = true;
     pMP->mTrackProjX = u;
-    pMP->mTrackProjXR = u - mbf*invz;
+    pMP->mTrackProjXR = u - mbf*invz; // x coordinate in the right image, has disparity
     pMP->mTrackProjY = v;
     pMP->mnTrackScaleLevel= nPredictedLevel;
     pMP->mTrackViewCos = viewCos;
@@ -324,39 +392,67 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     return true;
 }
 
-vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel, const int maxLevel) const
-{
+vector<size_t> Frame::GetFeaturesInArea(
+    const float &x, 
+    const float &y, 
+    const float &r, 
+    const int minLevel, 
+    const int maxLevel) const {
+    
+    /**
+     * void reserve(size_type n)
+     * 
+     * std::vector class provides a useful function reserve which helps user 
+     * specify the minimum size of the vector. It indicates that the vector 
+     * is created such that it can store at least the number of the specified 
+     * elements without having to reallocate memory.
+     * 
+     * Requests that vector is large enough to store n elements in the least.
+     */
     vector<size_t> vIndices;
     vIndices.reserve(N);
 
-    const int nMinCellX = max(0,(int)floor((x-mnMinX-r)*mfGridElementWidthInv));
+    /**
+     * 接下来计算方形的四边在哪，在 mGrid 中的行数和列数
+     * nMinCellX 是方形(Cell)左边在 mGrid 中的列数，
+     * 如果它比 mGrid 的列数大，说明方形内肯定没有特征点，于是返回
+     */
+    const int nMinCellX = max(0, (int)floor((x-mnMinX-r)*mfGridElementWidthInv));
     if(nMinCellX>=FRAME_GRID_COLS)
         return vIndices;
 
-    const int nMaxCellX = min((int)FRAME_GRID_COLS-1,(int)ceil((x-mnMinX+r)*mfGridElementWidthInv));
+    const int nMaxCellX = min((int)FRAME_GRID_COLS-1,
+                              (int)ceil((x-mnMinX+r)*mfGridElementWidthInv));
     if(nMaxCellX<0)
         return vIndices;
 
-    const int nMinCellY = max(0,(int)floor((y-mnMinY-r)*mfGridElementHeightInv));
+    const int nMinCellY = max(0, (int)floor((y-mnMinY-r)*mfGridElementHeightInv));
     if(nMinCellY>=FRAME_GRID_ROWS)
         return vIndices;
 
-    const int nMaxCellY = min((int)FRAME_GRID_ROWS-1,(int)ceil((y-mnMinY+r)*mfGridElementHeightInv));
+    const int nMaxCellY = min((int)FRAME_GRID_ROWS-1,
+                              (int)ceil((y-mnMinY+r)*mfGridElementHeightInv));
     if(nMaxCellY<0)
         return vIndices;
 
     const bool bCheckLevels = (minLevel>0) || (maxLevel>=0);
 
+    // crop keypoints in the area
     for(int ix = nMinCellX; ix<=nMaxCellX; ix++)
     {
         for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
         {
-            const vector<size_t> vCell = mGrid[ix][iy];
+            // Keypoints are assigned to cells in a grid to reduce matching complexity 
+            // when projecting MapPoints.
+            const vector<size_t> vCell = mGrid[ix][iy]; // cell in a grid
             if(vCell.empty())
                 continue;
 
+            // keypoints in cells
             for(size_t j=0, jend=vCell.size(); j<jend; j++)
             {
+                // mvKeysUn: Vector of keypoints (original for visualization) 
+                //           and undistorted
                 const cv::KeyPoint &kpUn = mvKeysUn[vCell[j]];
                 if(bCheckLevels)
                 {
@@ -370,6 +466,7 @@ vector<size_t> Frame::GetFeaturesInArea(const float &x, const float  &y, const f
                 const float distx = kpUn.pt.x-x;
                 const float disty = kpUn.pt.y-y;
 
+                // put all feature points in the area into a vector
                 if(fabs(distx)<r && fabs(disty)<r)
                     vIndices.push_back(vCell[j]);
             }
@@ -438,10 +535,17 @@ void Frame::ComputeImageBounds(const cv::Mat &imLeft)
     if(mDistCoef.at<float>(0)!=0.0)
     {
         cv::Mat mat(4,2,CV_32F);
-        mat.at<float>(0,0)=0.0; mat.at<float>(0,1)=0.0;
-        mat.at<float>(1,0)=imLeft.cols; mat.at<float>(1,1)=0.0;
-        mat.at<float>(2,0)=0.0; mat.at<float>(2,1)=imLeft.rows;
-        mat.at<float>(3,0)=imLeft.cols; mat.at<float>(3,1)=imLeft.rows;
+        mat.at<float>(0,0)=0.0; 
+        mat.at<float>(0,1)=0.0;
+
+        mat.at<float>(1,0)=imLeft.cols; 
+        mat.at<float>(1,1)=0.0;
+
+        mat.at<float>(2,0)=0.0; 
+        mat.at<float>(2,1)=imLeft.rows;
+        
+        mat.at<float>(3,0)=imLeft.cols; 
+        mat.at<float>(3,1)=imLeft.rows;
 
         // Undistort corners
         mat=mat.reshape(2);

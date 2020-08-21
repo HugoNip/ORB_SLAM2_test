@@ -49,13 +49,25 @@ public:
     Frame(const Frame &frame);
 
     // Constructor for stereo cameras.
-    Frame(const cv::Mat &imLeft, const cv::Mat &imRight, const double &timeStamp, ORBextractor* extractorLeft, ORBextractor* extractorRight, ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
+    Frame(const cv::Mat &imLeft, const cv::Mat &imRight, 
+            const double &timeStamp, 
+            ORBextractor* extractorLeft, ORBextractor* extractorRight, 
+            ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, 
+            const float &bf, const float &thDepth);
 
     // Constructor for RGB-D cameras.
-    Frame(const cv::Mat &imGray, const cv::Mat &imDepth, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
+    Frame(const cv::Mat &imGray, const cv::Mat &imDepth, 
+            const double &timeStamp, 
+            ORBextractor* extractor,
+            ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, 
+            const float &bf, const float &thDepth);
 
     // Constructor for Monocular cameras.
-    Frame(const cv::Mat &imGray, const double &timeStamp, ORBextractor* extractor,ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, const float &bf, const float &thDepth);
+    Frame(const cv::Mat &imGray, 
+            const double &timeStamp, 
+            ORBextractor* extractor,
+            ORBVocabulary* voc, cv::Mat &K, cv::Mat &distCoef, 
+            const float &bf, const float &thDepth);
 
     // Extract ORB on the image. 0 for left image and 1 for right image.
     void ExtractORB(int flag, const cv::Mat &im);
@@ -86,10 +98,33 @@ public:
     // Compute the cell of a keypoint (return false if outside the grid)
     bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY);
 
-    vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r, const int minLevel=-1, const int maxLevel=-1) const;
+    /**
+     * function() const {}
+     * A function becomes const when the const keyword is used in the function’s 
+     * declaration. The idea of const functions is not to allow them to modify 
+     * the object on which they are called. It is recommended the practice to 
+     * make as many functions const as possible so that accidental changes to 
+     * objects are avoided.
+     * 
+     * When a function is declared as const, it can be called on any type of object. 
+     * Non-const functions can only be called by non-const objects.
+     * 
+     * non-const objects.Non-const functions
+     * 
+     * non-const objects.const functions
+     * const objects.const functions
+     * 
+     * https://www.geeksforgeeks.org/const-member-functions-c/
+     */
+    vector<size_t> GetFeaturesInArea(const float &x, 
+                                     const float &y, 
+                                     const float &r, 
+                                     const int minLevel=-1, 
+                                     const int maxLevel=-1) const;
 
     // Search a match for each keypoint in the left image to a keypoint in the right image.
-    // If there is a match, depth is computed and the right coordinate associated to the left keypoint is stored.
+    // If there is a match, depth is computed and the right coordinate associated to the 
+    // left keypoint is stored.
     void ComputeStereoMatches();
 
     // Associate a "right" coordinate to a keypoint if there is valid depth in the depthmap.
@@ -131,7 +166,8 @@ public:
     // Number of KeyPoints.
     int N;
 
-    // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
+    // Vector of keypoints (original for visualization) and undistorted 
+    // (actually used by the system).
     // In the stereo case, mvKeysUn is redundant as images must be rectified.
     // In the RGB-D case, RGB images can be distorted.
     std::vector<cv::KeyPoint> mvKeys, mvKeysRight;
@@ -155,7 +191,8 @@ public:
     // Flag to identify outlier associations.
     std::vector<bool> mvbOutlier;
 
-    // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
+    // Keypoints are assigned to cells in a grid to reduce matching complexity 
+    // when projecting MapPoints.
     static float mfGridElementWidthInv;
     static float mfGridElementHeightInv;
     std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];
