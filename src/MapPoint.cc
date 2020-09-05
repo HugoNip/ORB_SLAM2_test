@@ -395,9 +395,8 @@ void MapPoint::UpdateNormalAndDepth()
     const int nLevels = pRefKF->mnScaleLevels;
 
     // 深度范围 [mfMinDistance, mfMaxDistance]
-    // 地图点到参考帧（只有一帧）相机中心距离，
-    // 乘上参考帧中描述子获取金字塔放大尺度，得到最大距离mfMaxDistance;
-    // 最大距离除以整个金字塔最高层的放大尺度得到最小距离mfMinDistance.
+    // 地图点到参考帧（只有一帧）相机中心距离 乘上 参考帧中描述子获取金字塔放大尺度，得到最大距离mfMaxDistance;
+    // 最大距离除以整个金字塔最高层的放大尺度 得到 最小距离mfMinDistance.
     // 通常说来，距离较近的地图点，将在金字塔较高的地方提出，
     // 距离较远的地图点，在金字塔层数较低的地方提取出（金字塔层数越低，分辨率越高，才能识别出远点）
     // 因此，通过地图点的信息（主要对应描述子），我们可以获得该地图点对应的金字塔层级
