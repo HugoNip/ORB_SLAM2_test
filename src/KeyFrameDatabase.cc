@@ -73,6 +73,10 @@ void KeyFrameDatabase::clear()
 }
 
 
+/**
+ * 上面说道，这个函数的流程和 DetectRelocalizationCandidates 唯一的区别是
+ * 忽略和自己已有共视关系的关键帧
+ */
 vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float minScore)
 {
     set<KeyFrame*> spConnectedKeyFrames = pKF->GetConnectedKeyFrames();
@@ -93,6 +97,9 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
                 if(pKFi->mnLoopQuery!=pKF->mnId)
                 {
                     pKFi->mnLoopWords=0;
+                    // 此处如果if条件成立，代表没有共视关系，此时才会进入执行语句
+                    // 换言之，如果有共视关系，就直接忽略了，
+                    // 这是它和DetectRelocalizationCandidates唯一的区别               
                     if(!spConnectedKeyFrames.count(pKFi))
                     {
                         pKFi->mnLoopQuery=pKF->mnId;
@@ -196,11 +203,23 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
     return vpLoopCandidates;
 }
 
+
+/**
+ * 检测的主要步骤如下：
+ * 1）找出与当前帧pKF有公共单词的所有关键帧pKFi，不包括与当前帧相连的关键帧。
+ * 2）统计所有闭环候选帧中与 pKF 具有共同单词最多的单词数，只考虑共有单词数大于 
+ *    0.8*maxCommonWords 以及匹配得分大于给定的 minScore 的关键帧，存入 lScoreAndMatch。
+ * 3）对于第二步中筛选出来的 pKFi ，每一个都要抽取出自身的共视（共享地图点最多的前10帧）关键帧分为一组，
+ *    计算该组整体得分（与pKF比较的），记为bestAccScore。所有组得分大于 0.75*bestAccScore 的，
+ *    均当作闭环候选帧。
+ */
 vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
 {
     list<KeyFrame*> lKFsSharingWords;
 
     // Search all keyframes that share a word with current frame
+    // 搜索 所有和F有着 相同单词 的 keyframe 存储在 lKFsSharingWords
+    // 并且更新 keyframe 中 mnRelocWord s，表示和此F有多少共同的单词
     {
         unique_lock<mutex> lock(mMutex);
 
@@ -225,6 +244,7 @@ vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
         return vector<KeyFrame*>();
 
     // Only compare against those keyframes that share enough words
+    // 在lKFsSharingWords中，寻找 mnRelocWords 的最大值存入 maxCommonWords
     int maxCommonWords=0;
     for(list<KeyFrame*>::iterator lit=lKFsSharingWords.begin(), lend= lKFsSharingWords.end(); lit!=lend; lit++)
     {
@@ -239,6 +259,8 @@ vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
     int nscores=0;
 
     // Compute similarity score.
+    // 遍历 lKFsSharingWords 中的 keyframe ，当其中的 keyframe 的 mRelocScore 大于
+    // 阈值 minCommonWords ,则计算相似度后放入 lScoreAndMatch 中
     for(list<KeyFrame*>::iterator lit=lKFsSharingWords.begin(), lend= lKFsSharingWords.end(); lit!=lend; lit++)
     {
         KeyFrame* pKFi = *lit;
@@ -259,9 +281,15 @@ vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
     float bestAccScore = 0;
 
     // Lets now accumulate score by covisibility
+    // 遍历 lScoreAndMatch 中的 keyframe，找出其共视图中与此keyframe连接的权值前N的节点，
+    // 加上原 keyframe 总共11个 keyframe
+    // 累加这11个keyframe的相似度得分，然后在11个keyframe中选择相似度得分最高的那个放入
+    // lAccScoreAndMatch中
+    // 在遍历过程中计算 bestAccScore，也就是AccScore的最大值，后面的再次筛选有用   
     for(list<pair<float,KeyFrame*> >::iterator it=lScoreAndMatch.begin(), itend=lScoreAndMatch.end(); it!=itend; it++)
     {
         KeyFrame* pKFi = it->second;
+        // 返回共视图中与此 keyframe 连接的权值前10的节点keyframe
         vector<KeyFrame*> vpNeighs = pKFi->GetBestCovisibilityKeyFrames(10);
 
         float bestScore = it->first;
@@ -270,6 +298,7 @@ vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
         for(vector<KeyFrame*>::iterator vit=vpNeighs.begin(), vend=vpNeighs.end(); vit!=vend; vit++)
         {
             KeyFrame* pKF2 = *vit;
+            // 说明pKF2与F没有共同的单词，就放弃此循环的关键帧
             if(pKF2->mnRelocQuery!=F->mnId)
                 continue;
 
@@ -287,11 +316,13 @@ vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
     }
 
     // Return all those keyframes with a score higher than 0.75*bestScore
+    // 返回 lAccScoreAndMatch 中所有得分超过0.75*bestAccScore的keyframe集合
     float minScoreToRetain = 0.75f*bestAccScore;
     set<KeyFrame*> spAlreadyAddedKF;
     vector<KeyFrame*> vpRelocCandidates;
     vpRelocCandidates.reserve(lAccScoreAndMatch.size());
-    for(list<pair<float,KeyFrame*> >::iterator it=lAccScoreAndMatch.begin(), itend=lAccScoreAndMatch.end(); it!=itend; it++)
+    for(list<pair<float,KeyFrame*> >::iterator it=lAccScoreAndMatch.begin(), 
+        itend=lAccScoreAndMatch.end(); it!=itend; it++)
     {
         const float &si = it->first;
         if(si>minScoreToRetain)

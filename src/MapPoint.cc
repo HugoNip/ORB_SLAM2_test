@@ -223,7 +223,7 @@ void MapPoint::Replace(MapPoint* pMP)
         {
             // add new observations
             pKF->ReplaceMapPointMatch(mit->second, pMP);
-            pMP->AddObservation(pKF,mit->second);
+            pMP->AddObservation(pKF, mit->second);
         }
         else
         {   

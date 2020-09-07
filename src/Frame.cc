@@ -340,12 +340,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     cv::Mat P = pMP->GetWorldPos(); 
 
     // 3D in camera coordinates
-    /**
-     * Pc: Position Camera
-     * mRcw: Rotation camera world
-     * mtcw: translation from world to camera
-     */
-    const cv::Mat Pc = mRcw*P+mtcw;
+    const cv::Mat Pc = mRcw*P+mtcw; // P_c = R_cw * P_w + t_cw
     const float &PcX = Pc.at<float>(0);
     const float &PcY= Pc.at<float>(1);
     const float &PcZ = Pc.at<float>(2);
