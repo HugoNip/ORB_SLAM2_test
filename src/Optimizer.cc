@@ -34,6 +34,37 @@
 
 #include<mutex>
 
+/**
+ * Optimizer是用来优化的类，ORB SLAM2中所有优化的方法都存放在这个类中。
+ * 优化的目的是调整位姿，位姿计算按复杂程度由低到高一共包含以下四种：
+ * 1）当前帧位姿计算
+ * 2）闭环检测时两帧之间相对位姿计算
+ * 3）局部地图关键帧位姿和地图点位置调整
+ * 4）全局地图关键帧位姿和地图点位置调整
+ * 
+ * 下面列出位姿计算和优化函数之间的对应关系：
+ * 1）当前帧位姿计算： PoseOptimization
+ *    每个帧可见多个地图点, 可以建立多个边连接, 构成图进行优化. 
+ *    只对这一帧的SE3位姿进行优化，不优化地图点坐标。
+ * 
+ * 2）闭环检测时两帧之间相对位姿计算： OptimizeSim3
+ *    优化两帧之间的位姿变换, 因为两帧之间可以看到多个相同的地图点, 可以构成一个超定方程组, 
+ *    可以最小化误差优化。优化帧间变化的 SIM3位姿 与地图的 VertexSBAPointXYZ 位姿
+ * 
+ * 3）局部地图调整： LocalBundleAdjustment
+ *    在一个 CovisbilityMap 内进行优化. 在一定范围的 keyframe 中,可以看到同一块地图, 即是 CovisbilityMap . 
+ *    连接 CovisbilityMap 内的每一个 MapPoint 点与可见它的所有 keyframe , 放在一起进行优化. 
+ *    这个优化是双向的, 既优化地图点的 VertexSBAPointXYZ 位姿, 又优化 frame 的 SE3 位姿.
+ * 
+ * 4）全局地图调整（简化版）： OptimizeEssentialGraph
+ *    加入 Loop Closure 的考虑, Covisbility 图中的 keyframe 相互连起来, 
+ *    Keyframe 之间有前后相连, 于是不同的 Covisbility 图也可以联系起来. 
+ *    这是一个大范围的优化, 主要是加入了 Loop Closure 约束. 优化的是 Camera 的 SIM3 位姿.
+ * 
+ * 5）全局地图调整（完整版）： GlobalBundleAdjustemnt
+ *    最大范围的优化, 优化所有 Camera 的 SE3 位姿与地图点的 XYZ 位姿.
+ */
+
 namespace ORB_SLAM2
 {
 
@@ -236,21 +267,51 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
 
 }
 
+
+/**
+ * 当前帧位姿计算
+ * 
+ * 1) 直接把当前 keyframe 设为地图中的 节点
+ * 2) 找出所有在当前 keyframe 中可见的的三维地图点, 对每一个地图点, 建立边。
+ *    边的两端分别是 keyframe 的 位姿 与当前地图点为位姿，
+ *    边的观测值为该地图点在当前 keyframe 中的 二维位置 ，
+ *    信息矩阵(权重)是观测值的偏离程度, 即3D地图点反投影回地图的误差。
+ * 3) 构图完成,进行优化.
+ * 4) 把优化后的keyframe位姿放回去.
+ * 
+ * 
+ * Vertex:
+ * - g2o::VertexSE3Expmap()，当前帧的Tcw
+ * 
+ * Edge:
+ * - g2o::EdgeSE3ProjectXYZOnlyPose() ， BaseUnaryEdge
+ * + Vertex ：待优化当前帧的 Tcw
+ * + measurement ：MapPoint在当前帧中的二维位置 (u,v)
+ * + InfoMatrix : invSigma2 (与特征点所在的尺度有关)
+ * - g2o::EdgeStereoSE3ProjectXYZOnlyPose()， BaseUnaryEdge
+ * + Vertex：待优化当前帧的 Tcw
+ * + measurement ：MapPoint在当前帧中的二维位置 (ul,v,ur)
+ * + InfoMatrix : invSigma2 (与特征点所在的尺度有关)
+ */
 int Optimizer::PoseOptimization(Frame *pFrame)
 {
+    // 构造g2o优化器
     g2o::SparseOptimizer optimizer;
     g2o::BlockSolver_6_3::LinearSolverType * linearSolver;
 
-    linearSolver = new g2o::LinearSolverDense<g2o::BlockSolver_6_3::PoseMatrixType>();
+    linearSolver = 
+        new g2o::LinearSolverDense<g2o::BlockSolver_6_3::PoseMatrixType>();
 
     g2o::BlockSolver_6_3 * solver_ptr = new g2o::BlockSolver_6_3(linearSolver);
 
-    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+    g2o::OptimizationAlgorithmLevenberg* solver = 
+        new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
     optimizer.setAlgorithm(solver);
 
     int nInitialCorrespondences=0;
 
     // Set Frame vertex
+    // 添加顶点：待优化当前帧的 Tcw
     g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
     vSE3->setEstimate(Converter::toSE3Quat(pFrame->mTcw));
     vSE3->setId(0);
@@ -277,27 +338,32 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     {
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);
 
+    // 遍历 pFrame 帧的所有特征点，添加g2o边
     for(int i=0; i<N; i++)
     {
         MapPoint* pMP = pFrame->mvpMapPoints[i];
         if(pMP)
         {
             // Monocular observation
+            // 此处 "<0"即代表单目
             if(pFrame->mvuRight[i]<0)
             {
                 nInitialCorrespondences++;
+                //先将这个特征点设置为 不是 Outlier ，也就是初始化
                 pFrame->mvbOutlier[i] = false;
 
                 Eigen::Matrix<double,2,1> obs;
                 const cv::KeyPoint &kpUn = pFrame->mvKeysUn[i];
-                obs << kpUn.pt.x, kpUn.pt.y;
+                obs << kpUn.pt.x, kpUn.pt.y; // [u, v]
 
-                g2o::EdgeSE3ProjectXYZOnlyPose* e = new g2o::EdgeSE3ProjectXYZOnlyPose();
+                g2o::EdgeSE3ProjectXYZOnlyPose* e = 
+                    new g2o::EdgeSE3ProjectXYZOnlyPose();
 
-                e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
-                e->setMeasurement(obs);
+                e->setVertex(0, 
+                    dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0))); // vSE3
+                e->setMeasurement(obs); // [u, v]
                 const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
-                e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
+                e->setInformation(Eigen::Matrix2d::Identity()*invSigma2); // Info matrix 2d
 
                 g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
                 e->setRobustKernel(rk);
@@ -307,6 +373,9 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 e->fy = pFrame->fy;
                 e->cx = pFrame->cx;
                 e->cy = pFrame->cy;
+                
+                // 在 globalBA 中， MapPoint 是以顶点形式出现的，此处由于只优化帧的位姿，
+                // 不优化 MapPoint 位置，所以 MapPoint 就以下面这种形式存在
                 cv::Mat Xw = pMP->GetWorldPos();
                 e->Xw[0] = Xw.at<float>(0);
                 e->Xw[1] = Xw.at<float>(1);
@@ -317,6 +386,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 vpEdgesMono.push_back(e);
                 vnIndexEdgeMono.push_back(i);
             }
+            // 双目的观测，包括RGBD虚拟出的双目，与单目的区别是观测多了一个 kp_ur ，由二维变成了三维
             else  // Stereo observation
             {
                 nInitialCorrespondences++;
@@ -328,12 +398,14 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 const float &kp_ur = pFrame->mvuRight[i];
                 obs << kpUn.pt.x, kpUn.pt.y, kp_ur;
 
-                g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = new g2o::EdgeStereoSE3ProjectXYZOnlyPose();
+                g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = 
+                    new g2o::EdgeStereoSE3ProjectXYZOnlyPose();
 
-                e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
+                e->setVertex(0, 
+                    dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
                 e->setMeasurement(obs);
                 const float invSigma2 = pFrame->mvInvLevelSigma2[kpUn.octave];
-                Eigen::Matrix3d Info = Eigen::Matrix3d::Identity()*invSigma2;
+                Eigen::Matrix3d Info = Eigen::Matrix3d::Identity()*invSigma2; // Info matrix 3d
                 e->setInformation(Info);
 
                 g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
@@ -344,7 +416,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 e->fy = pFrame->fy;
                 e->cx = pFrame->cx;
                 e->cy = pFrame->cy;
-                e->bf = pFrame->mbf;
+                e->bf = pFrame->mbf; // mono doesn't have this
                 cv::Mat Xw = pMP->GetWorldPos();
                 e->Xw[0] = Xw.at<float>(0);
                 e->Xw[1] = Xw.at<float>(1);
@@ -360,12 +432,18 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     }
     }
 
-
     if(nInitialCorrespondences<3)
         return 0;
 
-    // We perform 4 optimizations, after each optimization we classify observation as inlier/outlier
-    // At the next optimization, outliers are not included, but at the end they can be classified as inliers again.
+    // We perform 4 optimizations, after each optimization 
+    // we classify observation as inlier/outlier
+    // At the next optimization, outliers are not included, 
+    // but at the end they can be classified as inliers again.
+    // 开始优化，总共优化四次，
+    // 每次优化后，将 **观测** 分为 outlier 和 inlier， 
+    // outlier不参与下次优化
+    // 由于每次优化后是对所有的观测进行 outlier 和 inlier 判别，
+    // 因此之前被判别为outlier有可能变成inlier，反之亦然
     const float chi2Mono[4]={5.991,5.991,5.991,5.991};
     const float chi2Stereo[4]={7.815,7.815,7.815, 7.815};
     const int its[4]={10,10,10,10};    
@@ -375,6 +453,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     {
 
         vSE3->setEstimate(Converter::toSE3Quat(pFrame->mTcw));
+        // 只对level为0的边进行优化，此处 0 代表 inlier ，1 代表 outlier
         optimizer.initializeOptimization(0);
         optimizer.optimize(its[it]);
 
@@ -387,7 +466,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
             if(pFrame->mvbOutlier[idx])
             {
-                e->computeError();
+                e->computeError(); // NOTE g2o只会计算active edge的误差
             }
 
             const float chi2 = e->chi2();
@@ -395,17 +474,17 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             if(chi2>chi2Mono[it])
             {                
                 pFrame->mvbOutlier[idx]=true;
-                e->setLevel(1);
+                e->setLevel(1); // 设置为 outlier
                 nBad++;
             }
             else
             {
-                pFrame->mvbOutlier[idx]=false;
-                e->setLevel(0);
+                pFrame->mvbOutlier[idx]=false; 
+                e->setLevel(0); // 设置为inlier
             }
 
             if(it==2)
-                e->setRobustKernel(0);
+                e->setRobustKernel(0); // 前两次优化需要 RobustKernel , 其余的不需要
         }
 
         for(size_t i=0, iend=vpEdgesStereo.size(); i<iend; i++)
@@ -416,7 +495,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 
             if(pFrame->mvbOutlier[idx])
             {
-                e->computeError();
+                e->computeError(); // NOTE g2o 只会计算 active edge 的误差
             }
 
             const float chi2 = e->chi2();
@@ -424,17 +503,17 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             if(chi2>chi2Stereo[it])
             {
                 pFrame->mvbOutlier[idx]=true;
-                e->setLevel(1);
+                e->setLevel(1); // 设置为outlier
                 nBad++;
             }
             else
             {                
-                e->setLevel(0);
+                e->setLevel(0); // 设置为inlier
                 pFrame->mvbOutlier[idx]=false;
             }
 
             if(it==2)
-                e->setRobustKernel(0);
+                e->setRobustKernel(0); // 前两次优化需要 RobustKernel , 其余的不需要
         }
 
         if(optimizer.edges().size()<10)
@@ -442,12 +521,13 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     }    
 
     // Recover optimized pose and return number of inliers
-    g2o::VertexSE3Expmap* vSE3_recov = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(0));
+    g2o::VertexSE3Expmap* vSE3_recov = 
+        static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(0));
     g2o::SE3Quat SE3quat_recov = vSE3_recov->estimate();
     cv::Mat pose = Converter::toCvMat(SE3quat_recov);
-    pFrame->SetPose(pose);
+    pFrame->SetPose(pose); // 把优化后的位姿赋给当前帧
 
-    return nInitialCorrespondences-nBad;
+    return nInitialCorrespondences-nBad; // inliers 个数
 }
 
 void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap)
@@ -1043,9 +1123,45 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     }
 }
 
-int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &vpMatches1, g2o::Sim3 &g2oS12, const float th2, const bool bFixScale)
-{
+
+/**
+ * 闭环检测 时 两帧之间 相对位姿 计算
+ * KeyFrame *pKF1, // 匹配的两帧中的 一帧
+ * KeyFrame *pKF2, // 匹配的两帧中的 另一帧
+ * vector<MapPoint *> &vpMatches1, // 共视的地图点
+ * g2o::Sim3 &g2oS12, // 两个关键帧间的 Sim3 变换
+ * const float th2, // 核函数阈值
+ * const bool bFixScale) // 单目 进行 尺度优化，双目 不进行 尺度优化
+ * 
+ * 具体流程
+ * 1) 把输入的 KF1 到 KF2 的位姿变换 SIM3 加入图中作为节点0.
+ * 2) 找到 KF1 中对应的所有map点, 放在 vpMapPoints1 中. 
+ *    vpMatches1 为输入的匹配地图点, 是在 KF2 中匹配上 map 点的对应集合.
+ * 3) Point1 是 KF1 的 Rotation matrix*map point1的世界坐标 + KF1的Translation matrix. 
+ *    Point2 是 KF2 的 Rotation matrix*map point2的世界坐标 + KF2的Translation matrix. 
+ *    把 Point1 Point2 作为节点加入图中
+ * 4) 在节点 0 与 Point1 ,  Point2 之间都建立边连接. 
+ *    测量值分别是地图点反投影在图像上的 二维坐标 , 信息矩阵 为反投影的误差.
+ * 5) 图构建完成, 进行优化
+ * 6) 更新两帧间转换的 Sim3.
+ * 
+ * Vertex:
+ * - g2o::VertexSim3Expmap()，两个关键帧的 位姿
+ * - g2o::VertexSBAPointXYZ()，两个关键帧共有的 地图点
+ * Edge:
+ * - g2o::EdgeSim3ProjectXYZ()， BaseBinaryEdge
+ * + Vertex ：关键帧的 Sim3 ， MapPoint 的 Pw
+ * + measurement ： MapPoint 在关键帧中的 二维位置(u,v)
+ * + InfoMatrix : invSigma2 (与特征点所在的尺度有关)
+ * - g2o::EdgeInverseSim3ProjectXYZ()， BaseBinaryEdge
+ * + Vertex ：关键帧的 Sim3 ， MapPoint的Pw
+ * + measurement ： MapPoint 在关键帧中的 二维位置(u,v)
+ * + InfoMatrix : invSigma2 (与特征点所在的尺度有关)
+ */
+int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> 
+    &vpMatches1, g2o::Sim3 &g2oS12, const float th2, const bool bFixScale) {
     g2o::SparseOptimizer optimizer;
+    // 这表明 误差变量 和 误差项 的 维度 是 动态 的
     g2o::BlockSolverX::LinearSolverType * linearSolver;
 
     linearSolver = new g2o::LinearSolverDense<g2o::BlockSolverX::PoseMatrixType>();
@@ -1066,23 +1182,29 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     const cv::Mat t2w = pKF2->GetTranslation();
 
     // Set Sim3 vertex
+    // 添加 sim3 位姿顶点误差变量
     g2o::VertexSim3Expmap * vSim3 = new g2o::VertexSim3Expmap();    
     vSim3->_fix_scale=bFixScale;
     vSim3->setEstimate(g2oS12);
     vSim3->setId(0);
     vSim3->setFixed(false);
-    vSim3->_principle_point1[0] = K1.at<float>(0,2);
-    vSim3->_principle_point1[1] = K1.at<float>(1,2);
-    vSim3->_focal_length1[0] = K1.at<float>(0,0);
-    vSim3->_focal_length1[1] = K1.at<float>(1,1);
-    vSim3->_principle_point2[0] = K2.at<float>(0,2);
-    vSim3->_principle_point2[1] = K2.at<float>(1,2);
-    vSim3->_focal_length2[0] = K2.at<float>(0,0);
-    vSim3->_focal_length2[1] = K2.at<float>(1,1);
+
+    // 将内参导入顶点
+    vSim3->_principle_point1[0] = K1.at<float>(0,2);    // cx
+    vSim3->_principle_point1[1] = K1.at<float>(1,2);    // cy
+    vSim3->_focal_length1[0] = K1.at<float>(0,0);       // fx
+    vSim3->_focal_length1[1] = K1.at<float>(1,1);       // fy
+
+    vSim3->_principle_point2[0] = K2.at<float>(0,2);    // cx
+    vSim3->_principle_point2[1] = K2.at<float>(1,2);    // cy
+    vSim3->_focal_length2[0] = K2.at<float>(0,0);       // fx
+    vSim3->_focal_length2[1] = K2.at<float>(1,1);       // fy
+    
     optimizer.addVertex(vSim3);
 
     // Set MapPoint vertices
     const int N = vpMatches1.size();
+    // 获得 pKF1 的所有 mappoint
     const vector<MapPoint*> vpMapPoints1 = pKF1->GetMapPointMatches();
     vector<g2o::EdgeSim3ProjectXYZ*> vpEdges12;
     vector<g2o::EdgeInverseSim3ProjectXYZ*> vpEdges21;
@@ -1095,14 +1217,14 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     const float deltaHuber = sqrt(th2);
 
     int nCorrespondences = 0;
-
+    // 将匹配转化为 归一化3d点 作为g2o的 顶点
     for(int i=0; i<N; i++)
     {
-        if(!vpMatches1[i])
+        if(!vpMatches1[i]) 
             continue;
 
         MapPoint* pMP1 = vpMapPoints1[i];
-        MapPoint* pMP2 = vpMatches1[i];
+        MapPoint* pMP2 = vpMatches1[i]; // match id in pKF2
 
         const int id1 = 2*i+1;
         const int id2 = 2*(i+1);
@@ -1115,7 +1237,7 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
             {
                 g2o::VertexSBAPointXYZ* vPoint1 = new g2o::VertexSBAPointXYZ();
                 cv::Mat P3D1w = pMP1->GetWorldPos();
-                cv::Mat P3D1c = R1w*P3D1w + t1w;
+                cv::Mat P3D1c = R1w*P3D1w + t1w; // R*P+t
                 vPoint1->setEstimate(Converter::toVector3d(P3D1c));
                 vPoint1->setId(id1);
                 vPoint1->setFixed(true);
@@ -1138,13 +1260,18 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
         nCorrespondences++;
 
         // Set edge x1 = S12*X2
+        // 添加 误差项 边
         Eigen::Matrix<double,2,1> obs1;
         const cv::KeyPoint &kpUn1 = pKF1->mvKeysUn[i];
         obs1 << kpUn1.pt.x, kpUn1.pt.y;
 
         g2o::EdgeSim3ProjectXYZ* e12 = new g2o::EdgeSim3ProjectXYZ();
-        e12->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id2)));
-        e12->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
+        // 将 e12 边和 vertex(id2) 绑定
+        e12->setVertex(0, 
+            dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id2)));
+        e12->setVertex(1, 
+            dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
+        // 设定初始值
         e12->setMeasurement(obs1);
         const float &invSigmaSquare1 = pKF1->mvInvLevelSigma2[kpUn1.octave];
         e12->setInformation(Eigen::Matrix2d::Identity()*invSigmaSquare1);
@@ -1159,10 +1286,13 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
         const cv::KeyPoint &kpUn2 = pKF2->mvKeysUn[i2];
         obs2 << kpUn2.pt.x, kpUn2.pt.y;
 
+        // 注意这个的边类型和上面不一样
         g2o::EdgeInverseSim3ProjectXYZ* e21 = new g2o::EdgeInverseSim3ProjectXYZ();
 
-        e21->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id1)));
-        e21->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
+        e21->setVertex(0, 
+            dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id1)));
+        e21->setVertex(1, 
+            dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(0)));
         e21->setMeasurement(obs2);
         float invSigmaSquare2 = pKF2->mvInvLevelSigma2[kpUn2.octave];
         e21->setInformation(Eigen::Matrix2d::Identity()*invSigmaSquare2);
@@ -1182,6 +1312,7 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     optimizer.optimize(5);
 
     // Check inliers
+    // 把不是 inliner 的边剔除出去
     int nBad=0;
     for(size_t i=0; i<vpEdges12.size();i++)
     {
@@ -1212,11 +1343,11 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
         return 0;
 
     // Optimize again only with inliers
-
     optimizer.initializeOptimization();
     optimizer.optimize(nMoreIterations);
 
     int nIn = 0;
+    // 看哪些匹配是 inliner
     for(size_t i=0; i<vpEdges12.size();i++)
     {
         g2o::EdgeSim3ProjectXYZ* e12 = vpEdges12[i];
@@ -1234,7 +1365,8 @@ int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
     }
 
     // Recover optimized Sim3
-    g2o::VertexSim3Expmap* vSim3_recov = static_cast<g2o::VertexSim3Expmap*>(optimizer.vertex(0));
+    g2o::VertexSim3Expmap* vSim3_recov = 
+        static_cast<g2o::VertexSim3Expmap*>(optimizer.vertex(0));
     g2oS12= vSim3_recov->estimate();
 
     return nIn;
