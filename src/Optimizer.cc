@@ -52,14 +52,18 @@
  *    可以最小化误差优化。优化帧间变化的 SIM3位姿 与地图的 VertexSBAPointXYZ 位姿
  * 
  * 3）局部地图调整： LocalBundleAdjustment
- *    在一个 CovisbilityMap 内进行优化. 在一定范围的 keyframe 中,可以看到同一块地图, 即是 CovisbilityMap . 
- *    连接 CovisbilityMap 内的每一个 MapPoint 点与可见它的所有 keyframe , 放在一起进行优化. 
- *    这个优化是双向的, 既优化地图点的 VertexSBAPointXYZ 位姿, 又优化 frame 的 SE3 位姿.
+ *    在一个 CovisbilityMap 内进行优化. 在一定范围的 keyframe 中,可以看到同一块地图,
+ *    即是 CovisbilityMap .
+ *    连接 CovisbilityMap 内的每一个 MapPoint 点与可见它的所有 keyframe ,
+ *    放在一起进行优化.
+ *    这个优化是双向的, 既优化地图点的 VertexSBAPointXYZ (MapPoints) 位姿, 
+ *    又优化 frame 的 SE3 位姿.
  * 
  * 4）全局地图调整（简化版）： OptimizeEssentialGraph
  *    加入 Loop Closure 的考虑, Covisbility 图中的 keyframe 相互连起来, 
  *    Keyframe 之间有前后相连, 于是不同的 Covisbility 图也可以联系起来. 
- *    这是一个大范围的优化, 主要是加入了 Loop Closure 约束. 优化的是 Camera 的 SIM3 位姿.
+ *    这是一个大范围的优化, 主要是加入了 **Loop Closure** 约束. 
+ *    优化的是 Camera 的 SIM3 位姿.
  * 
  * 5）全局地图调整（完整版）： GlobalBundleAdjustemnt
  *    最大范围的优化, 优化所有 Camera 的 SE3 位姿与地图点的 XYZ 位姿.
@@ -69,20 +73,53 @@ namespace ORB_SLAM2
 {
 
 
-void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust)
-{
+/**
+ * 参数列表
+ * GlobalBundleAdjustemnt(
+ * Map* pMap, //地图
+ * int nIterations, //迭代次数
+ * bool* pbStopFlag, //是否强制暂停
+ * const unsigned long nLoopKF, //关键帧的个数
+ * const bool bRobust)//是否使用核函数
+ * 
+ * 图的结构
+ * Vertex:
+ * -g2o::VertexSE3Expmap() ，当前帧的 Tcw
+ * -g2o::VertexSBAPointXYZ() ， MapPoint 的 世界坐标(XYZ)
+ * Edge:
+ * -g2o::EdgeSE3ProjectXYZ()， BaseBinaryEdge
+ * +Vertex ：待优化当前帧的 Tcw
+ * +Vertex ：待优化 MapPoint 的 mWorldPos
+ * +measurement： MapPoint 在当前帧中的像素坐标 (u,v)
+ * +InfoMatrix: invSigma2 (与特征点所在的尺度有关)
+ * 
+ * 具体流程
+ * 1) 提取出所有的 keyframes (GetAllKeyFrames) 和所有的 地图点(GetAllMapPoints) .
+ * 2) 把 keyframe 设置为图中的 节点
+ * 3) 把每一个 地图点 设置为图中的 节点 , 然后对于每一个 地图点 ,
+ *    找出 所有 能看到这个 地图点 的 keyframe .
+ * 4) 对每一个 keyframe , 建立 边 。边的两端分别是 地图点的 SE3位姿 与当前 keyframe 的 SE 位姿，
+ *    边的观测值 为该地图点在当前 keyframe 中的二维位置，
+ *    信息矩阵(权重) 是观测值的 偏离程度 , 即 3D地图点 反投影回地图的 误差 。
+ * 5) 构图完成, 进行优化.
+ * 6) 把优化后的 地图点 和 keyframe 位姿 全部放回原本的地图中.
+ */
+void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, 
+    bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust) {
     vector<KeyFrame*> vpKFs = pMap->GetAllKeyFrames();
     vector<MapPoint*> vpMP = pMap->GetAllMapPoints();
-    BundleAdjustment(vpKFs,vpMP,nIterations,pbStopFlag, nLoopKF, bRobust);
+    BundleAdjustment(vpKFs, vpMP, nIterations, pbStopFlag, nLoopKF, bRobust);
 }
 
 
-void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<MapPoint *> &vpMP,
-                                 int nIterations, bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust)
-{
+void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, 
+    const vector<MapPoint *> &vpMP, int nIterations, bool* pbStopFlag, 
+    const unsigned long nLoopKF, const bool bRobust) {
+    
     vector<bool> vbNotIncludedMP;
     vbNotIncludedMP.resize(vpMP.size());
 
+    // 初始化g2o优化器
     g2o::SparseOptimizer optimizer;
     g2o::BlockSolver_6_3::LinearSolverType * linearSolver;
 
@@ -99,6 +136,8 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
     long unsigned int maxKFid = 0;
 
     // Set KeyFrame vertices
+    // 向优化器添加顶点
+    // 添加关键帧位姿顶点，所有的关键帧
     for(size_t i=0; i<vpKFs.size(); i++)
     {
         KeyFrame* pKF = vpKFs[i];
@@ -117,6 +156,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
     const float thHuber3D = sqrt(7.815);
 
     // Set MapPoint vertices
+    // 添加 MapPoints 顶点， 所有的地图点
     for(size_t i=0; i<vpMP.size(); i++)
     {
         MapPoint* pMP = vpMP[i];
@@ -124,17 +164,20 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
             continue;
         g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();
         vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+
+        // 计算顶点编号，让 MapPoint 的顶点编号在 KeyFrame 添加完之后的编号基础上接着增加
         const int id = pMP->mnId+maxKFid+1;
         vPoint->setId(id);
         vPoint->setMarginalized(true);
         optimizer.addVertex(vPoint);
 
-       const map<KeyFrame*,size_t> observations = pMP->GetObservations();
+        const map<KeyFrame*,size_t> observations = pMP->GetObservations();
 
         int nEdges = 0;
-        //SET EDGES
-        for(map<KeyFrame*,size_t>::const_iterator mit=observations.begin(); mit!=observations.end(); mit++)
-        {
+        // SET EDGES
+        // 优化器添加投影边，每一个 MapPoint 都要执行一次遍历，添加遍历到的所有边
+        for(map<KeyFrame*,size_t>::const_iterator mit=observations.begin(); 
+            mit!=observations.end(); mit++) {
 
             KeyFrame* pKF = mit->first;
             if(pKF->isBad() || pKF->mnId>maxKFid)
@@ -142,8 +185,15 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
 
             nEdges++;
 
+            // mvKeysUn 中存放的是 校正后的特征点
             const cv::KeyPoint &kpUn = pKF->mvKeysUn[mit->second];
 
+            // mvuRight 里面默认值为-1,在双目和RGBD相机时会被赋值
+            // 所以此处“<0”的判断条件代表只有左目观测，相反，则是双目均可观测，
+            // 此处双目包括RGBD虚拟出的右目
+            // 两者的区别在于观测(measurement)不同，
+            // 前者是 kpUn.pt.x, kpUn.pt.y 组成的二维向量，
+            // 后者是 kpUn.pt.x, kpUn.pt.y, kp_ur 组成的三维向量
             if(pKF->mvuRight[mit->second]<0)
             {
                 Eigen::Matrix<double,2,1> obs;
@@ -151,12 +201,16 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs, const vector<M
 
                 g2o::EdgeSE3ProjectXYZ* e = new g2o::EdgeSE3ProjectXYZ();
 
-                e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
-                e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKF->mnId)));
+                e->setVertex(0, 
+                    dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
+                e->setVertex(1, 
+                    dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKF->mnId)));
                 e->setMeasurement(obs);
+                // 根据特征点在金字塔中的尺度等级，设置不同的信息矩阵
                 const float &invSigma2 = pKF->mvInvLevelSigma2[kpUn.octave];
                 e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
 
+                // 如果需要，则添加核函数
                 if(bRobust)
                 {
                     g2o::RobustKernelHuber* rk = new g2o::RobustKernelHuber;
@@ -530,14 +584,50 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     return nInitialCorrespondences-nBad; // inliers 个数
 }
 
+
+/**
+ * KeyFrame *pKF, // 当前关键帧
+ * bool* pbStopFlag, // 是否强制暂停
+ * Map* pMap //地图
+ * 
+ * 具体流程
+ * 1) 找到 Local Keyframe , 即那些共享 CovisbilityMap 的 Keyframes . 存入 lLocalKeyFrames .
+ * 2) 找到所有 Local Keyframes 都能看到的地图点, 其实就是 CovisbilityMap 的地图点.
+ *    存入 lLocalMapPoints .
+ * 3) 再找出能看到上面的地图点, 却不在 Local Keyframe 范围内的 keyframe . 
+ *    存入 lFixedCameras .
+ * 4) 把上面的 Local Keyframe , Map Point, FixedCamera 都设置为图节点.
+ * 5) 对于 lLocalMapPoints 中的每一个地图点及能看到它的所有 keyframes , 建立边。
+ *    边的两端分别是 keyframe 的 位姿 与当前地图点为位姿，边的 观测值 为该地图点在当前 keyframe 中 
+ *    的二维位置，信息矩阵(权重)是观测值的偏离程度, 即3D地图点反投影回地图的 误差 .
+ * 6) 去除掉一些不符合标准的边.
+ * 7) 把优化后地图点和keyframe位姿放回去.
+ * 
+ * Vertex:
+ * - g2o::VertexSE3Expmap()，局部图，当前关键帧、与当前关键帧相连的关键帧的 位姿
+ * - g2o::VertexSE3Expmap()，即能观测到局部地图点的关键帧（并且不属于 LocalKeyFrames ）的 位姿 ，
+ *                           在优化中这些关键帧的位姿不变
+ * - g2o::VertexSBAPointXYZ()，局部地图点，即局部图能观测到的所有地图点的位置
+ * 
+ * Edge:
+ * - g2o::EdgeSE3ProjectXYZ()， BaseBinaryEdge
+ * + Vertex：关键帧的 Tcw ，MapPoint 的 Pw
+ * + measurement：地图点在关键帧中的二维位置 (u,v)
+ * + InfoMatrix:  invSigma2
+ * - g2o::EdgeStereoSE3ProjectXYZ()， BaseBinaryEdge
+ * + Vertex：关键帧的 Tcw ， MapPoint 的 Pw
+ * + measurement：地图点在关键帧中的二维位置 (ul,v,ur)
+ * + InfoMatrix: invSigma2
+ */
 void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap)
 {    
     // Local KeyFrames: First Breath Search from Current Keyframe
-    list<KeyFrame*> lLocalKeyFrames;
-
+    list<KeyFrame*> lLocalKeyFrames; // in the CovisbilityMap
+    // 将当前 关键帧 加入 lLocalKeyFrames
     lLocalKeyFrames.push_back(pKF);
     pKF->mnBALocalForKF = pKF->mnId;
 
+    // 找到关键帧一级 (in CovisbilityMap) 连接的关键帧，加入lLocalKeyFrames中
     const vector<KeyFrame*> vNeighKFs = pKF->GetVectorCovisibleKeyFrames();
     for(int i=0, iend=vNeighKFs.size(); i<iend; i++)
     {
@@ -547,10 +637,10 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
             lLocalKeyFrames.push_back(pKFi);
     }
 
-    // Local MapPoints seen in Local KeyFrames
+    // Local MapPoints seen in Local KeyFrames (CovisibleKeyFrames)
     list<MapPoint*> lLocalMapPoints;
-    for(list<KeyFrame*>::iterator lit=lLocalKeyFrames.begin() , lend=lLocalKeyFrames.end(); lit!=lend; lit++)
-    {
+    for(list<KeyFrame*>::iterator lit=lLocalKeyFrames.begin() , 
+        lend=lLocalKeyFrames.end(); lit!=lend; lit++) {
         vector<MapPoint*> vpMPs = (*lit)->GetMapPointMatches();
         for(vector<MapPoint*>::iterator vit=vpMPs.begin(), vend=vpMPs.end(); vit!=vend; vit++)
         {
@@ -566,6 +656,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     }
 
     // Fixed Keyframes. Keyframes that see Local MapPoints but that are not Local Keyframes
+    // 得到能被局部 MapPoints 观测到，但不属于局部关键帧的关键帧，这些关键帧在局部 BA 优化时不优化
     list<KeyFrame*> lFixedCameras;
     for(list<MapPoint*>::iterator lit=lLocalMapPoints.begin(), lend=lLocalMapPoints.end(); lit!=lend; lit++)
     {
@@ -583,6 +674,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
         }
     }
 
+
     // Setup optimizer
     g2o::SparseOptimizer optimizer;
     g2o::BlockSolver_6_3::LinearSolverType * linearSolver;
@@ -599,9 +691,11 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
 
     unsigned long maxKFid = 0;
 
+
     // Set Local KeyFrame vertices
-    for(list<KeyFrame*>::iterator lit=lLocalKeyFrames.begin(), lend=lLocalKeyFrames.end(); lit!=lend; lit++)
-    {
+    // 把局部地图中的关键帧加入 顶点
+    for(list<KeyFrame*>::iterator lit=lLocalKeyFrames.begin(), 
+        lend=lLocalKeyFrames.end(); lit!=lend; lit++) {
         KeyFrame* pKFi = *lit;
         g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
         vSE3->setEstimate(Converter::toSE3Quat(pKFi->GetPose()));
@@ -612,21 +706,25 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
             maxKFid=pKFi->mnId;
     }
 
+
     // Set Fixed KeyFrame vertices
-    for(list<KeyFrame*>::iterator lit=lFixedCameras.begin(), lend=lFixedCameras.end(); lit!=lend; lit++)
-    {
+    // 把能被局部 MapPoints 观测到，但不属于 局部地图的 关键帧 加入 顶点
+    for(list<KeyFrame*>::iterator lit=lFixedCameras.begin(), 
+        lend=lFixedCameras.end(); lit!=lend; lit++) {
         KeyFrame* pKFi = *lit;
         g2o::VertexSE3Expmap * vSE3 = new g2o::VertexSE3Expmap();
         vSE3->setEstimate(Converter::toSE3Quat(pKFi->GetPose()));
         vSE3->setId(pKFi->mnId);
-        vSE3->setFixed(true);
+        vSE3->setFixed(true); // 因为这些顶点不需要优化，所以设值为fixed
         optimizer.addVertex(vSE3);
         if(pKFi->mnId>maxKFid)
             maxKFid=pKFi->mnId;
     }
 
+
     // Set MapPoint vertices
-    const int nExpectedSize = (lLocalKeyFrames.size()+lFixedCameras.size())*lLocalMapPoints.size();
+    const int nExpectedSize = (lLocalKeyFrames.size()+lFixedCameras.size())
+                              *lLocalMapPoints.size();
 
     vector<g2o::EdgeSE3ProjectXYZ*> vpEdgesMono;
     vpEdgesMono.reserve(nExpectedSize);
@@ -649,11 +747,16 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     const float thHuberMono = sqrt(5.991);
     const float thHuberStereo = sqrt(7.815);
 
-    for(list<MapPoint*>::iterator lit=lLocalMapPoints.begin(), lend=lLocalMapPoints.end(); lit!=lend; lit++)
-    {
+    // 把所有 MapPoint 加入顶点，并添加与 MapPoint 相连的边
+    for(list<MapPoint*>::iterator 
+        lit=lLocalMapPoints.begin(), lend=lLocalMapPoints.end(); lit!=lend; lit++) {
+
+        // 把所有 MapPoint 加入 顶点
         MapPoint* pMP = *lit;
         g2o::VertexSBAPointXYZ* vPoint = new g2o::VertexSBAPointXYZ();
         vPoint->setEstimate(Converter::toVector3d(pMP->GetWorldPos()));
+        // 计算顶点编号，让 MapPoint 的顶点编号在 KeyFrame 
+        // 添加完之后的编号基础上接着增加
         int id = pMP->mnId+maxKFid+1;
         vPoint->setId(id);
         vPoint->setMarginalized(true);
@@ -661,9 +764,11 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
 
         const map<KeyFrame*,size_t> observations = pMP->GetObservations();
 
-        //Set edges
-        for(map<KeyFrame*,size_t>::const_iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
-        {
+        // Set edges
+        // 添加与 MapPoint 相连的边
+        for(map<KeyFrame*,size_t>::const_iterator mit=observations.begin(), 
+            mend=observations.end(); mit!=mend; mit++) {
+
             KeyFrame* pKFi = mit->first;
 
             if(!pKFi->isBad())
@@ -678,8 +783,10 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
 
                     g2o::EdgeSE3ProjectXYZ* e = new g2o::EdgeSE3ProjectXYZ();
 
-                    e->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
-                    e->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
+                    e->setVertex(0, 
+                        dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(id)));
+                    e->setVertex(1, 
+                        dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pKFi->mnId)));
                     e->setMeasurement(obs);
                     const float &invSigma2 = pKFi->mvInvLevelSigma2[kpUn.octave];
                     e->setInformation(Eigen::Matrix2d::Identity()*invSigma2);
@@ -748,6 +855,7 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     if(bDoMore)
     {
 
+    // 检测outlier，并设置下次不优化
     // Check inlier observations
     for(size_t i=0, iend=vpEdgesMono.size(); i<iend;i++)
     {
@@ -759,10 +867,10 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
 
         if(e->chi2()>5.991 || !e->isDepthPositive())
         {
-            e->setLevel(1);
+            e->setLevel(1); // 不优化
         }
 
-        e->setRobustKernel(0);
+        e->setRobustKernel(0); // 不使用核函数
     }
 
     for(size_t i=0, iend=vpEdgesStereo.size(); i<iend;i++)
@@ -782,16 +890,15 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     }
 
     // Optimize again without the outliers
-
     optimizer.initializeOptimization(0);
     optimizer.optimize(10);
-
     }
 
     vector<pair<KeyFrame*,MapPoint*> > vToErase;
     vToErase.reserve(vpEdgesMono.size()+vpEdgesStereo.size());
 
-    // Check inlier observations       
+    // Check inlier observations
+    // 优化后重新计算 误差 ，剔除 连接误差 比较大的关键帧和地图点
     for(size_t i=0, iend=vpEdgesMono.size(); i<iend;i++)
     {
         g2o::EdgeSE3ProjectXYZ* e = vpEdgesMono[i];
@@ -825,6 +932,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     // Get Map Mutex
     unique_lock<mutex> lock(pMap->mMutexMapUpdate);
 
+    // 偏差比较大，在关键帧中剔除对该地图点的观测
+    // 在地图点中剔除对该关键帧的观测
     if(!vToErase.empty())
     {
         for(size_t i=0;i<vToErase.size();i++)
@@ -837,10 +946,11 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     }
 
     // Recover optimized data
+    // 优化后更新 关键帧 位姿 以及 MapPoints 的 位置 、平均观测 方向 等属性
 
     //Keyframes
-    for(list<KeyFrame*>::iterator lit=lLocalKeyFrames.begin(), lend=lLocalKeyFrames.end(); lit!=lend; lit++)
-    {
+    for(list<KeyFrame*>::iterator lit=lLocalKeyFrames.begin(), 
+        lend=lLocalKeyFrames.end(); lit!=lend; lit++) {
         KeyFrame* pKF = *lit;
         g2o::VertexSE3Expmap* vSE3 = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(pKF->mnId));
         g2o::SE3Quat SE3quat = vSE3->estimate();
@@ -848,8 +958,8 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
     }
 
     //Points
-    for(list<MapPoint*>::iterator lit=lLocalMapPoints.begin(), lend=lLocalMapPoints.end(); lit!=lend; lit++)
-    {
+    for(list<MapPoint*>::iterator lit=lLocalMapPoints.begin(), 
+        lend=lLocalMapPoints.end(); lit!=lend; lit++) {
         MapPoint* pMP = *lit;
         g2o::VertexSBAPointXYZ* vPoint = static_cast<g2o::VertexSBAPointXYZ*>(optimizer.vertex(pMP->mnId+maxKFid+1));
         pMP->SetWorldPos(Converter::toCvMat(vPoint->estimate()));
@@ -858,18 +968,62 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
 }
 
 
+/**
+ * 参数列表
+ * OptimizeEssentialGraph(
+ * Map* pMap, // 地图
+ * KeyFrame* pLoopKF, // 闭环匹配上的帧
+ * KeyFrame* pCurKF,// 当前帧
+ * const LoopClosing::KeyFrameAndPose &NonCorrectedSim3,// 未经过Sim3调整的位姿
+ * const LoopClosing::KeyFrameAndPose &CorrectedSim3,// 经过Sim3调整的位姿
+ * const map<KeyFrame *, set<KeyFrame *> > &LoopConnections, // 闭环连接关系
+ * const bool &bFixScale)//是否优化尺度，单目需要优化，双目不需要优化
+ * 
+ * 图的结构
+ * Vertex:
+ * - g2o::VertexSim3Expmap，Essential graph 中关键帧的 位姿
+ * Edge:
+ * - g2o::EdgeSim3()， BaseBinaryEdge
+ * + Vertex： 关键帧的Tcw，MapPoint的Pw
+ * + measurement： 经过 CorrectLoop 函数 Sim3传播校正后的位姿
+ * + InfoMatrix:  单位矩阵
+ * 
+ * 具体流程
+ * 1) 首先获取所有 keyframes 和 地图点
+ * 2) 把 keyframe 都设为图 节点 , 剔除不好的 keyframe . 这里的frame位姿为 Sim3 .
+ * 3) 添加边
+ * <1> Loop edge: LoopConnections 是一个 Map, Map 中第一个元素是有 loop 的 keyframe , 
+ *     第二个元素是与第一个元素形成 loop 的 keyframe 集合. 给它们全部添加边进行连接。
+ *     边的观测值是后一帧的 SIM3位姿 乘以 前一帧的 SIM3位姿 的逆.
+ * <2> Normal edge: 遍历所有的keyframe
+ *     - 找到 当前 keyframe 的 parent keyframe, 建立边连接. 
+ *       边的观测值为 parent keyframe 的位姿 乘以 keyframe 位姿 的 逆. 
+ *       信息矩阵为单位矩阵.
+ *     - 找到与当前 keyframe 形成 Loop 的所有 keyframe , 
+ *       如果找到成 Loop 的 keyframe 在 当前keyframe 之前, 则在两个keyframe之间添加一个 边连接 .
+ *       观测值为 Loop keyframe 的位姿 乘以 keyframe 位姿 的 逆. 
+ *       信息矩阵为单位矩阵.
+ *     - 找到当前 keyframe 的 covisibility graph 中的每一个 keyframe , 建立边连接.
+ *       观测值为 covisibility graph keyframe 位姿 乘以 keyframe 位姿 的逆.
+ *       信息矩阵为单位矩阵.
+ * 4) 构图完成, 进行优化.
+ * 5) 更新EssentialGraph中的所有位姿.
+ */
 void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* pCurKF,
-                                       const LoopClosing::KeyFrameAndPose &NonCorrectedSim3,
-                                       const LoopClosing::KeyFrameAndPose &CorrectedSim3,
-                                       const map<KeyFrame *, set<KeyFrame *> > &LoopConnections, const bool &bFixScale)
+                            const LoopClosing::KeyFrameAndPose &NonCorrectedSim3,
+                            const LoopClosing::KeyFrameAndPose &CorrectedSim3,
+                            const map<KeyFrame *, set<KeyFrame *> > &LoopConnections, 
+                            const bool &bFixScale)
 {
     // Setup optimizer
     g2o::SparseOptimizer optimizer;
     optimizer.setVerbose(false);
+    // 这表明误差变量为 7维 ，误差项为 3维
     g2o::BlockSolver_7_3::LinearSolverType * linearSolver =
            new g2o::LinearSolverEigen<g2o::BlockSolver_7_3::PoseMatrixType>();
     g2o::BlockSolver_7_3 * solver_ptr= new g2o::BlockSolver_7_3(linearSolver);
-    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+    g2o::OptimizationAlgorithmLevenberg* solver =
+        new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
 
     solver->setUserLambdaInit(1e-16);
     optimizer.setAlgorithm(solver);
@@ -879,13 +1033,17 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
     const unsigned int nMaxKFid = pMap->GetMaxKFid();
 
+    // 经过 Sim3 传播调整，未经过优化的 keyframe 的 pose
     vector<g2o::Sim3,Eigen::aligned_allocator<g2o::Sim3> > vScw(nMaxKFid+1);
+    // 经过 Sim3 传播调整，经过优化的 keyframe 的 pose
     vector<g2o::Sim3,Eigen::aligned_allocator<g2o::Sim3> > vCorrectedSwc(nMaxKFid+1);
     vector<g2o::VertexSim3Expmap*> vpVertices(nMaxKFid+1);
 
     const int minFeat = 100;
 
     // Set KeyFrame vertices
+    // 将地图中所有 keyframe 的 pose 作为 顶点 添加到优化器
+    // 尽可能使用经过 Sim3 调整的 位姿
     for(size_t i=0, iend=vpKFs.size(); i<iend;i++)
     {
         KeyFrame* pKF = vpKFs[i];
@@ -897,12 +1055,14 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
         LoopClosing::KeyFrameAndPose::const_iterator it = CorrectedSim3.find(pKF);
 
+        // 如果该关键帧在闭环时通过Sim3传播调整过，用校正后的位姿
         if(it!=CorrectedSim3.end())
         {
             vScw[nIDi] = it->second;
             VSim3->setEstimate(it->second);
         }
         else
+        // 如果没有通过Sim3传播调整过，用自身的位姿
         {
             Eigen::Matrix<double,3,3> Rcw = Converter::toMatrix3d(pKF->GetRotation());
             Eigen::Matrix<double,3,1> tcw = Converter::toVector3d(pKF->GetTranslation());
@@ -911,6 +1071,8 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
             VSim3->setEstimate(Siw);
         }
 
+        // 闭环匹配上的帧 不进行 位姿优化
+        // vpKFs: all keyframes
         if(pKF==pLoopKF)
             VSim3->setFixed(true);
 
@@ -923,14 +1085,16 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
         vpVertices[nIDi]=VSim3;
     }
 
-
+    // 在 g2o 中已经形成误差边的两个顶点，firstid 数较小的顶点
     set<pair<long unsigned int,long unsigned int> > sInsertedEdges;
 
     const Eigen::Matrix<double,7,7> matLambda = Eigen::Matrix<double,7,7>::Identity();
 
     // Set Loop edges
-    for(map<KeyFrame *, set<KeyFrame *> >::const_iterator mit = LoopConnections.begin(), mend=LoopConnections.end(); mit!=mend; mit++)
-    {
+    // 添加边： LoopConnections 是闭环时 因为地图点调整 而出现的 新关键帧 连接关系
+    for(map<KeyFrame *, set<KeyFrame *> >::const_iterator mit = LoopConnections.begin(), 
+        mend=LoopConnections.end(); mit!=mend; mit++) {
+        
         KeyFrame* pKF = mit->first;
         const long unsigned int nIDi = pKF->mnId;
         const set<KeyFrame*> &spConnections = mit->second;
@@ -944,6 +1108,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
                 continue;
 
             const g2o::Sim3 Sjw = vScw[nIDj];
+            // 得到两个 pose 间的 Sim3变换
             const g2o::Sim3 Sji = Sjw * Swi;
 
             g2o::EdgeSim3* e = new g2o::EdgeSim3();
@@ -960,6 +1125,9 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     }
 
     // Set normal edges
+    // 添加跟踪时形成的边、闭环匹配成功形成的边
+    // 遍历 vpKFs ，将 vpKFs 和其在 spanningtree 中的父节点在g2o图中连接起来形成一条 误差边 ；
+    // 将 vpKFs 和其形成闭环的帧在g2o图中连接起来形成一条 误差边
     for(size_t i=0, iend=vpKFs.size(); i<iend; i++)
     {
         KeyFrame* pKF = vpKFs[i];
@@ -978,6 +1146,8 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
         KeyFrame* pParentKF = pKF->GetParent();
 
         // Spanning tree edge
+        // 只添加扩展树的边（有父关键帧）
+        // 将 vpKFs 和其在 spanningtree 中的父节点在g2o图中连接起来形成一条 误差边 ；
         if(pParentKF)
         {
             int nIDj = pParentKF->mnId;
@@ -986,11 +1156,13 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
             LoopClosing::KeyFrameAndPose::const_iterator itj = NonCorrectedSim3.find(pParentKF);
 
+            // 尽可能得到未经过 Sim3 传播调整的位姿
             if(itj!=NonCorrectedSim3.end())
                 Sjw = itj->second;
             else
                 Sjw = vScw[nIDj];
 
+            // 得到两个 pose 间的 Sim3变换
             g2o::Sim3 Sji = Sjw * Swi;
 
             g2o::EdgeSim3* e = new g2o::EdgeSim3();
@@ -1003,6 +1175,9 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
         }
 
         // Loop edges
+        // 步添加在 CorrectLoop 函数 中 AddLoopEdge 函数添加的 闭环连接边（当前帧与闭环匹配帧之间的连接关系）
+        // 使用经过 Sim3调整 前 关键帧之间的相对关系 作为 边
+        // 将 vpKFs 和 其形成闭环的帧 在g2o图中连接起来形成一条 误差边
         const set<KeyFrame*> sLoopEdges = pKF->GetLoopEdges();
         for(set<KeyFrame*>::const_iterator sit=sLoopEdges.begin(), send=sLoopEdges.end(); sit!=send; sit++)
         {
@@ -1013,6 +1188,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
                 LoopClosing::KeyFrameAndPose::const_iterator itl = NonCorrectedSim3.find(pLKF);
 
+                // 尽可能得到未经过Sim3传播调整的位姿
                 if(itl!=NonCorrectedSim3.end())
                     Slw = itl->second;
                 else
@@ -1020,8 +1196,10 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
                 g2o::Sim3 Sli = Slw * Swi;
                 g2o::EdgeSim3* el = new g2o::EdgeSim3();
-                el->setVertex(1, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pLKF->mnId)));
-                el->setVertex(0, dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(nIDi)));
+                el->setVertex(1, 
+                    dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(pLKF->mnId)));
+                el->setVertex(0, 
+                    dynamic_cast<g2o::OptimizableGraph::Vertex*>(optimizer.vertex(nIDi)));
                 el->setMeasurement(Sli);
                 el->information() = matLambda;
                 optimizer.addEdge(el);
@@ -1029,21 +1207,29 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
         }
 
         // Covisibility graph edges
+        // 有很好共视关系的关键帧也作为边进行优化
+        // 使用 经过Sim3调整前 关键帧 之间的相对关系作为 边
+        // pKF 与在 Covisibility graph 中与pKF连接，且共视点超过 minFeat 的关键帧，
+        // 形成一条 误差边 （如果之前没有添加过的话）        
         const vector<KeyFrame*> vpConnectedKFs = pKF->GetCovisiblesByWeight(minFeat);
         for(vector<KeyFrame*>::const_iterator vit=vpConnectedKFs.begin(); vit!=vpConnectedKFs.end(); vit++)
         {
             KeyFrame* pKFn = *vit;
+            // 避免和前面的边添加重复
             if(pKFn && pKFn!=pParentKF && !pKF->hasChild(pKFn) && !sLoopEdges.count(pKFn))
             {
                 if(!pKFn->isBad() && pKFn->mnId<pKF->mnId)
                 {
-                    if(sInsertedEdges.count(make_pair(min(pKF->mnId,pKFn->mnId),max(pKF->mnId,pKFn->mnId))))
+                    // 为避免重复添加，先查找
+                    if(sInsertedEdges.count(
+                        make_pair(min(pKF->mnId,pKFn->mnId), max(pKF->mnId,pKFn->mnId))))
                         continue;
 
                     g2o::Sim3 Snw;
 
                     LoopClosing::KeyFrameAndPose::const_iterator itn = NonCorrectedSim3.find(pKFn);
 
+                    // 尽可能得到未经过 Sim3 传播调整的 位姿
                     if(itn!=NonCorrectedSim3.end())
                         Snw = itn->second;
                     else
@@ -1069,6 +1255,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
     unique_lock<mutex> lock(pMap->mMutexMapUpdate);
 
     // SE3 Pose Recovering. Sim3:[sR t;0 1] -> SE3:[R t/s;0 1]
+    // 更新优化后的闭环检测位姿
     for(size_t i=0;i<vpKFs.size();i++)
     {
         KeyFrame* pKFi = vpKFs[i];
@@ -1089,7 +1276,9 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
         pKFi->SetPose(Tiw);
     }
 
-    // Correct points. Transform to "non-optimized" reference keyframe pose and transform back with optimized pose
+    // Correct points. Transform to "non-optimized" reference keyframe pose 
+    // and transform back with optimized pose
+    // 优化得到关键帧的位姿后，地图点根据参考帧优化前后的相对关系调整自己的位置
     for(size_t i=0, iend=vpMPs.size(); i<iend; i++)
     {
         MapPoint* pMP = vpMPs[i];
@@ -1098,6 +1287,7 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
             continue;
 
         int nIDr;
+        // 该地图点经过 Sim3 调整过
         if(pMP->mnCorrectedByKF==pCurKF->mnId)
         {
             nIDr = pMP->mnCorrectedReference;
@@ -1108,8 +1298,9 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
             nIDr = pRefKF->mnId;
         }
 
-
+        // 得到地图点参考关键帧 优化 前 的位姿
         g2o::Sim3 Srw = vScw[nIDr];
+        // 得到地图点参考关键帧 优化 后 的位姿
         g2o::Sim3 correctedSwr = vCorrectedSwc[nIDr];
 
         cv::Mat P3Dw = pMP->GetWorldPos();
