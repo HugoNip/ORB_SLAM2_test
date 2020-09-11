@@ -28,6 +28,15 @@ namespace ORB_SLAM2
 {
 
 // THIS IS THE INITIALIZER FOR MONOCULAR SLAM. NOT USED IN THE STEREO OR RGBD CASE.
+/**
+ * Initializer 是用来初始化的，初始化的方法是根据当前帧和参考帧匹配得到的特征点对，
+ * 利用 RANSAC 方法去计算 单应性矩阵H 和 基础矩阵F ，
+ * 然后 根据重投影误差大小 决定选择哪个矩阵，
+ * 最后 使用 **SFM方法** 利用 矩阵计算 旋转R 和 平移T
+ * 
+ * 这里之所以要同时计算单应性矩阵H和基础矩阵F，是因为当特征点在同一个平面上时，基础矩阵F会出现退化现象，
+ * 导致位姿计算错误。这也导致这个类的代码中，所有关于恢复矩阵的操作都有两个函数与之对应
+ */
 class Initializer
 {
     typedef pair<int,int> Match;

@@ -73,15 +73,7 @@ namespace ORB_SLAM2
 {
 
 
-/**
- * 参数列表
- * GlobalBundleAdjustemnt(
- * Map* pMap, //地图
- * int nIterations, //迭代次数
- * bool* pbStopFlag, //是否强制暂停
- * const unsigned long nLoopKF, //关键帧的个数
- * const bool bRobust)//是否使用核函数
- * 
+/** 
  * 图的结构
  * Vertex:
  * -g2o::VertexSE3Expmap() ，当前帧的 Tcw
@@ -103,6 +95,12 @@ namespace ORB_SLAM2
  *    信息矩阵(权重) 是观测值的 偏离程度 , 即 3D地图点 反投影回地图的 误差 。
  * 5) 构图完成, 进行优化.
  * 6) 把优化后的 地图点 和 keyframe 位姿 全部放回原本的地图中.
+ * 
+ * @param pMap          地图
+ * @param nIterations   迭代次数
+ * @param pbStopFlag    是否强制暂停
+ * @param nLoopKF       关键帧的个数
+ * @param bRobust       是否使用核函数
  */
 void Optimizer::GlobalBundleAdjustemnt(Map* pMap, int nIterations, 
     bool* pbStopFlag, const unsigned long nLoopKF, const bool bRobust) {
@@ -585,11 +583,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
 }
 
 
-/**
- * KeyFrame *pKF, // 当前关键帧
- * bool* pbStopFlag, // 是否强制暂停
- * Map* pMap //地图
- * 
+/** 
  * 具体流程
  * 1) 找到 Local Keyframe , 即那些共享 CovisbilityMap 的 Keyframes . 存入 lLocalKeyFrames .
  * 2) 找到所有 Local Keyframes 都能看到的地图点, 其实就是 CovisbilityMap 的地图点.
@@ -618,6 +612,10 @@ int Optimizer::PoseOptimization(Frame *pFrame)
  * + Vertex：关键帧的 Tcw ， MapPoint 的 Pw
  * + measurement：地图点在关键帧中的二维位置 (ul,v,ur)
  * + InfoMatrix: invSigma2
+ * 
+ * @param pKF           当前关键帧
+ * @param pbStopFlag    是否强制暂停
+ * @param pMap          地图
  */
 void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap)
 {    
@@ -969,16 +967,6 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
 
 
 /**
- * 参数列表
- * OptimizeEssentialGraph(
- * Map* pMap, // 地图
- * KeyFrame* pLoopKF, // 闭环匹配上的帧
- * KeyFrame* pCurKF,// 当前帧
- * const LoopClosing::KeyFrameAndPose &NonCorrectedSim3,// 未经过Sim3调整的位姿
- * const LoopClosing::KeyFrameAndPose &CorrectedSim3,// 经过Sim3调整的位姿
- * const map<KeyFrame *, set<KeyFrame *> > &LoopConnections, // 闭环连接关系
- * const bool &bFixScale)//是否优化尺度，单目需要优化，双目不需要优化
- * 
  * 图的结构
  * Vertex:
  * - g2o::VertexSim3Expmap，Essential graph 中关键帧的 位姿
@@ -1008,6 +996,14 @@ void Optimizer::LocalBundleAdjustment(KeyFrame *pKF, bool* pbStopFlag, Map* pMap
  *       信息矩阵为单位矩阵.
  * 4) 构图完成, 进行优化.
  * 5) 更新EssentialGraph中的所有位姿.
+ * 
+ * @param pMap              地图
+ * @param pLoopKF           闭环匹配上的帧
+ * @param pCurKF            当前帧
+ * @param NonCorrectedSim3  未经过Sim3调整的位姿
+ * @param CorrectedSim3     经过Sim3调整的位姿
+ * @param LoopConnections   闭环连接关系
+ * @param bFixScale         是否优化尺度，单目需要优化，双目不需要优化
  */
 void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* pCurKF,
                             const LoopClosing::KeyFrameAndPose &NonCorrectedSim3,
@@ -1317,12 +1313,6 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
 /**
  * 闭环检测 时 两帧之间 相对位姿 计算
- * KeyFrame *pKF1, // 匹配的两帧中的 一帧
- * KeyFrame *pKF2, // 匹配的两帧中的 另一帧
- * vector<MapPoint *> &vpMatches1, // 共视的地图点
- * g2o::Sim3 &g2oS12, // 两个关键帧间的 Sim3 变换
- * const float th2, // 核函数阈值
- * const bool bFixScale) // 单目 进行 尺度优化，双目 不进行 尺度优化
  * 
  * 具体流程
  * 1) 把输入的 KF1 到 KF2 的位姿变换 SIM3 加入图中作为节点0.
@@ -1348,6 +1338,13 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
  * + Vertex ：关键帧的 Sim3 ， MapPoint的Pw
  * + measurement ： MapPoint 在关键帧中的 二维位置(u,v)
  * + InfoMatrix : invSigma2 (与特征点所在的尺度有关)
+ * 
+ * @param pKF1          匹配的两帧中的 一帧
+ * @param pKF2          匹配的两帧中的 另一帧
+ * @param vpMatches1    共视的地图点
+ * @param g2oS12        两个关键帧间的 Sim3 变换
+ * @param th2           核函数阈值
+ * @param bFixScale     单目 进行 尺度优化，双目 不进行 尺度优化
  */
 int Optimizer::OptimizeSim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> 
     &vpMatches1, g2o::Sim3 &g2oS12, const float th2, const bool bFixScale) {
