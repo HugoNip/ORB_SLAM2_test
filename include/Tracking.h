@@ -54,7 +54,7 @@ class System;
  * Define the Tracker. 
  * It receives a frame and computes the associated camera pose.
  * It also decides when to insert a new keyframe, create some new MapPoints and
- * performs relocalization if tracking fails.
+ * performs **relocalization** if tracking fails.
  * --------------------------
  * Tracking* mpTracker;
  */

@@ -57,8 +57,8 @@ Initializer::Initializer(const Frame &ReferenceFrame, float sigma, int iteration
  * 
  * @param CurrentFrame      当前帧
  * @param vMatches12        ORB计算的 初步匹配结果
- * @param R21               输出的旋转矩阵, 1: camera1, 2: camera2
- * @param t21               输出的平移向量, Reference Frame: 1, Current Frame: 2
+ * @param R21               输出的旋转矩阵, 1: camera1, 2: camera2                  -> return
+ * @param t21               输出的平移向量, Reference Frame: 1, Current Frame: 2    -> return
  * @param vP3D              三角化重投影成功的 匹配点 的 3d点 在相机1下的坐标
  * @param vbTriangulated    初始化成功后，特征点中三角化投影是否成功的标志位
  */

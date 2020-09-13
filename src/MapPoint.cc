@@ -95,9 +95,22 @@ KeyFrame* MapPoint::GetReferenceKeyFrame()
     return mpRefKF;
 }
 
+
 /**
- * @param pKF
- * @param idx associated index in keyframe
+ * storage the Observation for a MapPoint
+ * storage the keyframe and idx in the keyframe
+ * 
+ * 它的作用是判断此 关键帧 是否已经在观测关系中了，如果是，这里就不会添加； 
+ * 如果不是，往下记录下此 关键帧 以及此 MapPoint 的 idx，就算是记录下观测信息了
+ * 
+ * 此处涉及到两个重要变量：
+ * std::map<KeyFrame *, size_t> mObservations
+ * 它是用来存放 观测关系 的容器，把能够观测到该 MapPoint 的 关键帧，以及 MapPoint 在该关键帧中对应的 索引值 关联并存储起来
+ * int nObs
+ * 它用来记录被观测的次数
+ * 
+ * @param pKF 关键帧
+ * @param idx idx of MapPoint in keyframe, 该地图点在关键帧中对应的索引值
  */
 void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
 {
@@ -107,8 +120,8 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
     if(mObservations.count(pKF))
         return;
     
-    // add this keyframe into mObservations and store the index of mappoint in map type
-    // std::map<KeyFrame*,size_t> mObservations;
+    // add this keyframe into mObservations and store the idx of MapPoint shown in this KeyFrame
+    // std::map<KeyFrame*, int> mObservations;
     mObservations[pKF]=idx;
 
     // const std::vector<float> mvuRight; // negative value for monocular points
@@ -118,7 +131,21 @@ void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
         nObs++; // monocular
 }
 
-// for which mappoint?
+
+/**
+ * For a mappoint, 
+ * if it is not observed by one keyframe, 
+ * erase this keyframe, and idx
+ * mObservations->first: KF
+ * mObservations->second: idx
+ * so, erase KF is OK
+ * 
+ * 首先,判断该 关键帧 是否在 观测 中，如果在，就从存放观测关系的容器 mObservations 中移除该关键帧，
+ * 接着,判断该帧是否是 参考关键帧 ，如果是， 参考关键帧 换成观测的第一帧，因为不能没有 参考关键帧
+ * 删除以后，如果该MapPoint被观测的次数小于2，那么这个MapPoint就没有存在的必要了，需要删除
+ * 
+ * @param pKF   关键帧
+ */
 void MapPoint::EraseObservation(KeyFrame* pKF)
 {
     bool bBad=false;
@@ -264,6 +291,13 @@ float MapPoint::GetFoundRatio()
     return static_cast<float>(mnFound)/mnVisible;
 }
 
+
+/**
+ * For one MapPoint
+ * 由于一个MapPoint会被许多相机观测到，因此在插入关键帧后，需要判断是否更新当前点的最适合的 描述子
+ * 最好的描述子与其他描述子应该具有 最小的平均距离 ，因此先获得当前点的 所有 描述子 ，
+ * 然后计算描述子之间的 两两距离 ，对所有距离取平均 ， 最后找离这个 中值距离 最近 的描述子。
+ */
 void MapPoint::ComputeDistinctiveDescriptors()
 {
     // Retrieve all observed descriptors
@@ -273,25 +307,36 @@ void MapPoint::ComputeDistinctiveDescriptors()
 
     {
         unique_lock<mutex> lock1(mMutexFeatures);
+        // 如果地图点标记为不好，直接返回
         if(mbBad)
             return;
         observations=mObservations;
     }
 
+    // 如果观测为空，则返回
     if(observations.empty())
         return;
 
+    // for one MapPoint
+    // 保留的 描述子数(vDescriptors) 最多和 观测数(observations) 一致
     vDescriptors.reserve(observations.size());
 
-    // a mappoint -> many keyframes -> many observations
-    // observation <-> keyframe
+    // a mappoint can be observed by many keyframes, so there are many observations
+    // one observation <-> one keyframe
+    // map<KeyFrame, idx of MapPoint> observations;
+    // For different KF -> observations[KF]
     for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
     {
         KeyFrame* pKF = mit->first;
 
         if(!pKF->isBad())
-        // different descriptors come from different keyframes
-        // so the matching point can be found
+            // for each mappoint, every frame provides a descriptor
+            // 针对每帧的对应的都提取其 描述子
+            // cv::Mat mDescriptors
+            // 每个特征点描述子占一行，建立一个指针指向iL特征点对应的描述子
+            // vDescriptors storages the descriptors of one MapPoints in each KeyFrame
+            // mit->second:                         idx of MapPoint in this KF
+            // pKF->mDescriptors.row(mit->second):  descriptor of MapPoint in this KF
             vDescriptors.push_back(pKF->mDescriptors.row(mit->second));
     }
 
@@ -314,6 +359,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
     }
 
     // Take the descriptor with least median distance to the rest
+    // 选择距离 其他描述子中值距离 最小 的 描述子 作为 地图点 的 描述子 ，基本上类似于取了个均值
     int BestMedian = INT_MAX;
     int BestIdx = 0;
     for(size_t i=0;i<N;i++)
@@ -332,6 +378,7 @@ void MapPoint::ComputeDistinctiveDescriptors()
 
     {
         unique_lock<mutex> lock(mMutexFeatures);
+        // choose the best descriptor for a MapPoint
         mDescriptor = vDescriptors[BestIdx].clone();
     }
 }

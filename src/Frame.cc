@@ -321,7 +321,7 @@ void Frame::SetPose(cv::Mat Tcw)
 void Frame::UpdatePoseMatrices()
 { 
     mRcw = mTcw.rowRange(0,3).colRange(0,3);
-    mRwc = mRcw.t();
+    mRwc = mRcw.t(); // cw->wc
     mtcw = mTcw.rowRange(0,3).col(3);
     mOw = -mRcw.t()*mtcw; // camera center
 }

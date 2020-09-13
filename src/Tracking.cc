@@ -43,11 +43,13 @@ using namespace std;
 namespace ORB_SLAM2
 {
 
-Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer, MapDrawer *pMapDrawer, Map *pMap, KeyFrameDatabase* pKFDB, const string &strSettingPath, const int sensor):
-    mState(NO_IMAGES_YET), mSensor(sensor), mbOnlyTracking(false), mbVO(false), mpORBVocabulary(pVoc),
-    mpKeyFrameDB(pKFDB), mpInitializer(static_cast<Initializer*>(NULL)), mpSystem(pSys), mpViewer(NULL),
-    mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), mpMap(pMap), mnLastRelocFrameId(0)
-{
+Tracking::Tracking(System *pSys, ORBVocabulary* pVoc, FrameDrawer *pFrameDrawer, 
+                   MapDrawer *pMapDrawer, Map *pMap, KeyFrameDatabase* pKFDB, 
+                   const string &strSettingPath, const int sensor):
+                   mState(NO_IMAGES_YET), mSensor(sensor), mbOnlyTracking(false), mbVO(false), 
+                   mpORBVocabulary(pVoc), mpKeyFrameDB(pKFDB), mpInitializer(static_cast<Initializer*>(NULL)), 
+                   mpSystem(pSys), mpViewer(NULL), mpFrameDrawer(pFrameDrawer), mpMapDrawer(pMapDrawer), 
+                   mpMap(pMap), mnLastRelocFrameId(0) {
     // Load camera parameters from settings file
 
     cv::FileStorage fSettings(strSettingPath, cv::FileStorage::READ);
@@ -164,11 +166,13 @@ void Tracking::SetViewer(Viewer *pViewer)
 }
 
 
-cv::Mat Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat &imRectRight, const double &timestamp)
-{
+// image preprocessing
+cv::Mat Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat &imRectRight, 
+    const double &timestamp) {
     mImGray = imRectLeft;
     cv::Mat imGrayRight = imRectRight;
 
+    // -> GRAY
     if(mImGray.channels()==3)
     {
         if(mbRGB)
@@ -178,7 +182,7 @@ cv::Mat Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat &imRe
         }
         else
         {
-            cvtColor(mImGray,mImGray,CV_BGR2GRAY);
+            cvtColor(mImGray,mImGray,CV_BGR2GRAY); // channel BGR
             cvtColor(imGrayRight,imGrayRight,CV_BGR2GRAY);
         }
     }
@@ -196,6 +200,7 @@ cv::Mat Tracking::GrabImageStereo(const cv::Mat &imRectLeft, const cv::Mat &imRe
         }
     }
 
+    // compute ORB
     mCurrentFrame = Frame(mImGray,imGrayRight,timestamp,mpORBextractorLeft,mpORBextractorRight,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
 
     Track();
@@ -227,6 +232,7 @@ cv::Mat Tracking::GrabImageRGBD(const cv::Mat &imRGB,const cv::Mat &imD, const d
     if((fabs(mDepthMapFactor-1.0f)>1e-5) || imDepth.type()!=CV_32F)
         imDepth.convertTo(imDepth,CV_32F,mDepthMapFactor);
 
+    // compute ORB
     mCurrentFrame = Frame(mImGray,imDepth,timestamp,mpORBextractorLeft,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
 
     Track();
@@ -254,6 +260,7 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
             cvtColor(mImGray,mImGray,CV_BGRA2GRAY);
     }
 
+    // compute ORB
     if(mState==NOT_INITIALIZED || mState==NO_IMAGES_YET)
         mCurrentFrame = Frame(mImGray,timestamp,mpIniORBextractor,mpORBVocabulary,mK,mDistCoef,mbf,mThDepth);
     else
@@ -263,6 +270,7 @@ cv::Mat Tracking::GrabImageMonocular(const cv::Mat &im, const double &timestamp)
 
     return mCurrentFrame.mTcw.clone();
 }
+
 
 void Tracking::Track()
 {
@@ -560,6 +568,20 @@ void Tracking::StereoInitialization()
     }
 }
 
+
+/**
+ * 作用：单目相机的初始化过程，通过将 最初的 两帧 之间进行 对极约束 和 全局BA 优化，得到较为准确的初始值
+ * 
+ * 1）当第一次进入该方法的时候，没有先前的帧数据，将当前帧保存为 初始帧 和 最后一帧 ，并初始化一个 初始化器 。
+ * 2）第二次进入该方法的时候，已经有 初始化器 了。
+ * 3）利用 ORB匹配器 ，对 当前帧 和 初始帧 进行匹配，对应关系 小于 100个 时失败。
+ * 4）利用 八点法 的 对极约束，启动两个线程分别计算 单应矩阵 和 基础矩阵 ，
+ *    并通过 score 判断用单应矩阵回复运动轨迹还是使用基础矩阵回复运动轨迹。
+ * 5）将 初始帧 和 当前帧 创建为 关键帧 ，并创建地图点 MapPoint
+ * 6）通过 全局 BundleAdjustment 优化相机位姿 和 关键点 坐标
+ * 7）设置 单位深度 并 缩放初试 基线 和 地图点 。
+ * 8）其他变量的初始化。
+ */
 void Tracking::MonocularInitialization()
 {
 
@@ -568,8 +590,8 @@ void Tracking::MonocularInitialization()
         // Set Reference Frame
         if(mCurrentFrame.mvKeys.size()>100)
         {
-            mInitialFrame = Frame(mCurrentFrame);
-            mLastFrame = Frame(mCurrentFrame);
+            mInitialFrame = Frame(mCurrentFrame); // first rame
+            mLastFrame = Frame(mCurrentFrame); // last frame
             mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
             for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
                 mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
@@ -611,7 +633,7 @@ void Tracking::MonocularInitialization()
         cv::Mat tcw; // Current Camera Translation
         vector<bool> vbTriangulated; // Triangulated Correspondences (mvIniMatches)
 
-        if(mpInitializer->Initialize(mCurrentFrame, mvIniMatches, Rcw, tcw, mvIniP3D, vbTriangulated))
+        if(mpInitializer->Initialize(mCurrentFrame, mvIniMatches, Rcw, tcw, mvIniP3D, vbTriangulated)) // Rcw, tcw
         {
             for(size_t i=0, iend=mvIniMatches.size(); i<iend;i++)
             {
@@ -654,7 +676,7 @@ void Tracking::CreateInitialMapMonocular()
         if(mvIniMatches[i]<0)
             continue;
 
-        //Create MapPoint.
+        // Create MapPoint.
         cv::Mat worldPos(mvIniP3D[i]);
 
         MapPoint* pMP = new MapPoint(worldPos,pKFcur,mpMap);
@@ -665,6 +687,7 @@ void Tracking::CreateInitialMapMonocular()
         pMP->AddObservation(pKFini,i);
         pMP->AddObservation(pKFcur,mvIniMatches[i]);
 
+        // each mappoint has its own descriptors
         pMP->ComputeDistinctiveDescriptors();
         pMP->UpdateNormalAndDepth();
 

@@ -162,6 +162,9 @@ protected:
 
      // Keyframes observing the point and associated index in keyframe
      // a mappoint has many observations
+     // number of observations == number of keyframes
+     // mObservations->first: KeyFrame
+     // mObservations->second: idx of MapPoint
      std::map<KeyFrame*,size_t> mObservations;
 
      // Mean viewing direction
