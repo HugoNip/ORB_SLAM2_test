@@ -183,7 +183,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs,
 
             nEdges++;
 
-            // mvKeysUn 中存放的是 校正后的特征点
+            // mvKeysUn 中存放的是 undistorted keyframe's keypoints 
             const cv::KeyPoint &kpUn = pKF->mvKeysUn[mit->second];
 
             // mvuRight 里面默认值为-1,在双目和RGBD相机时会被赋值
@@ -390,7 +390,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     {
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);
 
-    // 遍历 pFrame 帧的所有特征点，添加g2o边
+    // 遍历 pFrame 帧的 所有特征点 ， 添加g2o边
     for(int i=0; i<N; i++)
     {
         MapPoint* pMP = pFrame->mvpMapPoints[i];

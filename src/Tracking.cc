@@ -579,7 +579,7 @@ void Tracking::StereoInitialization()
  *    并通过 score 判断用单应矩阵回复运动轨迹还是使用基础矩阵回复运动轨迹。
  * 5）将 初始帧 和 当前帧 创建为 关键帧 ，并创建地图点 MapPoint
  * 6）通过 全局 BundleAdjustment 优化相机位姿 和 关键点 坐标
- * 7）设置 单位深度 并 缩放初试 基线 和 地图点 。
+ * 7）设置 单位深度 并 缩放 initial baseline 和 地图点 
  * 8）其他变量的初始化。
  */
 void Tracking::MonocularInitialization()
@@ -590,8 +590,9 @@ void Tracking::MonocularInitialization()
         // Set Reference Frame
         if(mCurrentFrame.mvKeys.size()>100)
         {
-            mInitialFrame = Frame(mCurrentFrame); // first rame
-            mLastFrame = Frame(mCurrentFrame); // last frame
+            // 当第一次进入该方法的时候，没有先前的帧数据，将当前帧保存为 初始帧 和 最后一帧 ，并初始化一个 初始化器
+            mInitialFrame = Frame(mCurrentFrame);   // first rame
+            mLastFrame = Frame(mCurrentFrame);      // last frame
             mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
             for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
                 mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
@@ -656,9 +657,11 @@ void Tracking::MonocularInitialization()
     }
 }
 
+
 void Tracking::CreateInitialMapMonocular()
 {
     // Create KeyFrames
+    // 将 初始帧 和 当前帧 创建为 关键帧，并创建地图点 MapPoint
     KeyFrame* pKFini = new KeyFrame(mInitialFrame,mpMap,mpKeyFrameDB);
     KeyFrame* pKFcur = new KeyFrame(mCurrentFrame,mpMap,mpKeyFrameDB);
 
@@ -687,15 +690,15 @@ void Tracking::CreateInitialMapMonocular()
         pMP->AddObservation(pKFini,i);
         pMP->AddObservation(pKFcur,mvIniMatches[i]);
 
-        // each mappoint has its own descriptors
+        // each mappoint has its own descriptor (the best one)
         pMP->ComputeDistinctiveDescriptors();
         pMP->UpdateNormalAndDepth();
 
-        //Fill Current Frame structure
+        // Fill Current Frame structure
         mCurrentFrame.mvpMapPoints[mvIniMatches[i]] = pMP;
         mCurrentFrame.mvbOutlier[mvIniMatches[i]] = false;
 
-        //Add to Map
+        // Add this MapPoint into Map (Global)
         mpMap->AddMapPoint(pMP);
     }
 
@@ -706,7 +709,7 @@ void Tracking::CreateInitialMapMonocular()
     // Bundle Adjustment
     cout << "New Map created with " << mpMap->MapPointsInMap() << " points" << endl;
 
-    Optimizer::GlobalBundleAdjustemnt(mpMap,20);
+    Optimizer::GlobalBundleAdjustemnt(mpMap, 20);
 
     // Set median depth to 1
     float medianDepth = pKFini->ComputeSceneMedianDepth(2);
@@ -719,12 +722,12 @@ void Tracking::CreateInitialMapMonocular()
         return;
     }
 
-    // Scale initial baseline
-    cv::Mat Tc2w = pKFcur->GetPose();
+    // Scale initial baseline = baseline * invMedianDepth
+    cv::Mat Tc2w = pKFcur->GetPose(); // Tcw
     Tc2w.col(3).rowRange(0,3) = Tc2w.col(3).rowRange(0,3)*invMedianDepth;
     pKFcur->SetPose(Tc2w);
 
-    // Scale points
+    // Scale points = (X, Y, Z) * invMedianDepth
     vector<MapPoint*> vpAllMapPoints = pKFini->GetMapPointMatches();
     for(size_t iMP=0; iMP<vpAllMapPoints.size(); iMP++)
     {
@@ -758,6 +761,7 @@ void Tracking::CreateInitialMapMonocular()
 
     mState=OK;
 }
+
 
 void Tracking::CheckReplacedInLastFrame()
 {
@@ -1361,22 +1365,47 @@ void Tracking::UpdateLocalKeyFrames()
     }
 }
 
+
+/**
+ * 作用：重定位，从之前的关键帧中找出 与当前帧之间拥有充足匹配点的 候选帧 ，利用Ransac迭代，通过PnP求解位姿
+ * 
+ * 1）先计算当前帧的BOW值，并从 关键帧数据库 中查找 候选的匹配 candidates
+ * 2）构建 PnP求解器 ，标记杂点，准备好 每个关键帧和当前帧的 匹配点集
+ * 3）用PnP算法求解位姿，进行若干次P4P Ransac迭代，并使用非线性最小二乘优化，直到发现一个有充足 inliers 支持的 相机位置
+ * 4）返回成功或失败
+ * 
+ * 需要利用 relocalization 到 全局的地图中 查找匹配帧，计算位姿
+ * 
+ * 假如当前帧与最近邻关键帧的匹配也失败了，那么意味着此时当前帧已经丢了，无法确定其真实位置。
+ * 此时，只有去和所有关键帧匹配，看能否找到合适的位置。
+ * 首先，利用BoW词典选取若干关键帧作为备选（参见ORB－SLAM（六）回环检测）
+ * 其次，寻找有足够多的特征点匹配的关键帧
+ * 最后，利用特征点匹配迭代求解位姿（RANSAC框架下，因为相对位姿可能比较大，局外点会比较多）。
+ * 如果有关键帧有足够多的内点，那么选取该关键帧优化出的 位姿
+ * 
+ * @return 直到发现一个有充足 inliers 支持的 相机位置 for this F
+ */
 bool Tracking::Relocalization()
 {
     // Compute Bag of Words Vector
+    // 步骤1：计算当前帧特征点的Bow映射
     mCurrentFrame.ComputeBoW();
 
     // Relocalization is performed when tracking is lost
     // Track Lost: Query KeyFrame Database for keyframe candidates for relocalisation
+    // Detect Relocalization Candidates/KeyFrames
+    // 步骤2：找到 与当前帧相似的 候选关键帧
     vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectRelocalizationCandidates(&mCurrentFrame);
 
     if(vpCandidateKFs.empty())
         return false;
 
-    const int nKFs = vpCandidateKFs.size();
+    const int nKFs = vpCandidateKFs.size(); // 候选关键帧个数
 
     // We perform first an ORB matching with each candidate
     // If enough matches are found we setup a PnP solver
+    // 首先执行 与每个候选匹配的 ORB匹配
+    // 如果找到足够的匹配，设置一个PNP解算器
     ORBmatcher matcher(0.75,true);
 
     vector<PnPsolver*> vpPnPsolvers;
@@ -1390,20 +1419,22 @@ bool Tracking::Relocalization()
 
     int nCandidates=0;
 
+    // for each candidate
     for(int i=0; i<nKFs; i++)
     {
         KeyFrame* pKF = vpCandidateKFs[i];
         if(pKF->isBad())
-            vbDiscarded[i] = true;
+            vbDiscarded[i] = true; // 去除不好的候选关键帧
         else
         {
+            // 步骤3：通过BoW进行匹配
             int nmatches = matcher.SearchByBoW(pKF,mCurrentFrame,vvpMapPointMatches[i]);
-            if(nmatches<15)
+            if(nmatches<15) // 如果匹配点小于15剔除
             {
                 vbDiscarded[i] = true;
                 continue;
             }
-            else
+            else // 用pnp求解
             {
                 PnPsolver* pSolver = new PnPsolver(mCurrentFrame,vvpMapPointMatches[i]);
                 pSolver->SetRansacParameters(0.99,10,300,4,0.5,5.991);
@@ -1420,6 +1451,8 @@ bool Tracking::Relocalization()
 
     while(nCandidates>0 && !bMatch)
     {
+        // For each candidate, get the pose
+        // nKFs: 候选关键帧个数
         for(int i=0; i<nKFs; i++)
         {
             if(vbDiscarded[i])
@@ -1430,6 +1463,7 @@ bool Tracking::Relocalization()
             int nInliers;
             bool bNoMore;
 
+            // 步骤4：通过EPnP算法 估计姿态 Tcw
             PnPsolver* pSolver = vpPnPsolvers[i];
             cv::Mat Tcw = pSolver->iterate(5,bNoMore,vbInliers,nInliers);
 
@@ -1447,7 +1481,7 @@ bool Tracking::Relocalization()
 
                 set<MapPoint*> sFound;
 
-                const int np = vbInliers.size();
+                const int np = vbInliers.size(); // 内点个数
 
                 for(int j=0; j<np; j++)
                 {
@@ -1460,6 +1494,7 @@ bool Tracking::Relocalization()
                         mCurrentFrame.mvpMapPoints[j]=NULL;
                 }
 
+                // 步骤5：通过 PoseOptimization 对姿态进行优化求解
                 int nGood = Optimizer::PoseOptimization(&mCurrentFrame);
 
                 if(nGood<10)
@@ -1470,6 +1505,7 @@ bool Tracking::Relocalization()
                         mCurrentFrame.mvpMapPoints[io]=static_cast<MapPoint*>(NULL);
 
                 // If few inliers, search by projection in a coarse window and optimize again
+                // 步骤6：如果内点较少，则 通过投影的方式对之前未匹配的点进行 匹配，再进行优化求解
                 if(nGood<50)
                 {
                     int nadditional =matcher2.SearchByProjection(mCurrentFrame,vpCandidateKFs[i],sFound,10,100);
@@ -1523,6 +1559,7 @@ bool Tracking::Relocalization()
     }
 
 }
+
 
 void Tracking::Reset()
 {

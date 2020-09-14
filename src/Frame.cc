@@ -494,14 +494,18 @@ bool Frame::PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY)
 }
 
 
+/**
+ * 如果没有传入已有的词袋数据，则就用当前的描述子重新计算生成词袋数据
+ */
 void Frame::ComputeBoW()
 {
     if(mBowVec.empty())
     {
-        vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors);
+        vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors); // 当前的描述子
         mpORBvocabulary->transform(vCurrentDesc,mBowVec,mFeatVec,4);
     }
 }
+
 
 void Frame::UndistortKeyPoints()
 {

@@ -101,30 +101,30 @@ KeyFrame* MapPoint::GetReferenceKeyFrame()
  * storage the keyframe and idx in the keyframe
  * 
  * 它的作用是判断此 关键帧 是否已经在观测关系中了，如果是，这里就不会添加； 
- * 如果不是，往下记录下此 关键帧 以及此 MapPoint 的 idx，就算是记录下观测信息了
+ * 如果不是，往下 记录下 此关键帧 以及此 MapPoint 的 idx，就算是记录下观测信息了
  * 
- * 此处涉及到两个重要变量：
- * std::map<KeyFrame *, size_t> mObservations
- * 它是用来存放 观测关系 的容器，把能够观测到该 MapPoint 的 关键帧，以及 MapPoint 在该关键帧中对应的 索引值 关联并存储起来
- * int nObs
- * 它用来记录被观测的次数
+ * @param pKF   new KeyFrame
+ * @param idx   idx of old MapPoint in keyframe, 该地图点在关键帧中对应的索引值
  * 
- * @param pKF 关键帧
- * @param idx idx of MapPoint in keyframe, 该地图点在关键帧中对应的索引值
+ * @note pMP->AddObservation(pKF, mit->second);
  */
 void MapPoint::AddObservation(KeyFrame* pKF, size_t idx)
 {
     unique_lock<mutex> lock(mMutexFeatures);
 
     // whether or not this keyframe has been in current observatons
+    // std::map<KeyFrame*, int> mObservations 
+    // 它是用来存放 MapPoint 观测关系 的容器，把能够观测到该 MapPoint 的 关键帧，
+    // 以及 MapPoint 在该关键帧中对应的 索引值 关联并存储起来
     if(mObservations.count(pKF))
         return;
     
-    // add this keyframe into mObservations and store the idx of MapPoint shown in this KeyFrame
-    // std::map<KeyFrame*, int> mObservations;
+    // add this keyframe into mObservations, use old idx of MapPoint
+    // it means replace the old keyframe
     mObservations[pKF]=idx;
 
     // const std::vector<float> mvuRight; // negative value for monocular points
+    // nObs: 它用来记录被观测的次数
     if(pKF->mvuRight[idx]>=0)
         nObs+=2; // stereo
     else
@@ -221,14 +221,26 @@ MapPoint* MapPoint::GetReplaced()
     return mpReplaced;
 }
 
+
+/**
+ * 该函数的作用是将当前 MapPoint(this)，替换成 pMP，
+ * 这主要是因为在使用闭环时，完成 闭环优化 以后，需要 调整 MapPoint 和 KeyFrame，建立新的关系
+ * 具体流程是循环遍历所有的 observation/KeyFrame ，判断此 MapPoint 是否在 该KeyFrame 中，
+ * 如果在，那么只要移除原来 MapPoint 的匹配信息，最后增加这个 MapPoint 找到的数量 以及 可见的次数，
+ * 另外地图中要移除原来的那个 MapPoint 
+ * 最后需要计算这个点独有的描述子
+ * 
+ * @param pMP   就是用来替换的地图点
+ */
 void MapPoint::Replace(MapPoint* pMP)
 {
     // if the same one
+    // 如果传入的该 MapPoint 就是当前的 MapPoint，直接跳出
     if(pMP->mnId==this->mnId)
         return;
 
     int nvisible, nfound;
-    map<KeyFrame*,size_t> obs;
+    map<KeyFrame*,size_t> obs; // 
     {
         unique_lock<mutex> lock1(mMutexFeatures);
         unique_lock<mutex> lock2(mMutexPos);
@@ -240,16 +252,23 @@ void MapPoint::Replace(MapPoint* pMP)
         mpReplaced = pMP;
     }
 
+    // For all observations of this MapPoint
+    // 
     for(map<KeyFrame*,size_t>::iterator mit=obs.begin(), mend=obs.end(); mit!=mend; mit++)
     {
         // Replace measurement in keyframe
-        KeyFrame* pKF = mit->first;
+        // 
+        KeyFrame* pKF = mit->first; // keyframe
 
-        // mappoint does not find the corresponding observations in keyframes
+        // pMP is not in the pKF
         if(!pMP->IsInKeyFrame(pKF))
         {
-            // add new observations
+            // add new observation
+            // mit->first:  KeyFrame
+            // mit->second: idx of MapPoint
+            // find the old idx of MapPoint in obs, replace with pMP (new one), idx is fixed
             pKF->ReplaceMapPointMatch(mit->second, pMP);
+            // add the new observation for pMP
             pMP->AddObservation(pKF, mit->second);
         }
         else
@@ -265,6 +284,7 @@ void MapPoint::Replace(MapPoint* pMP)
     // replace old mappoint
     mpMap->EraseMapPoint(this);
 }
+
 
 bool MapPoint::isBad()
 {
@@ -294,9 +314,13 @@ float MapPoint::GetFoundRatio()
 
 /**
  * For one MapPoint
- * 由于一个MapPoint会被许多相机观测到，因此在插入关键帧后，需要判断是否更新当前点的最适合的 描述子
- * 最好的描述子与其他描述子应该具有 最小的平均距离 ，因此先获得当前点的 所有 描述子 ，
+ * 由于一个 MapPoint 会被 许多相机 观测到，
+ * 因此在插入 关键帧 后，需要判断是否更新 当前点(MapPoint) 的最适合的 描述子,
+ * 
+ * 最好的描述子 与 其他描述子 应该具有 最小的平均距离 ，因此先获得当前点的 所有 描述子 ，
  * 然后计算描述子之间的 两两距离 ，对所有距离取平均 ， 最后找离这个 中值距离 最近 的描述子。
+ * 
+ * choose the best one among all candidate based on the comparision between each pair of descriptors
  */
 void MapPoint::ComputeDistinctiveDescriptors()
 {
@@ -404,9 +428,17 @@ bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
     return (mObservations.count(pKF));
 }
 
+
+/**
+ * For one MapPoint
+ * 由于图像提取 描述子 是使用 金字塔 分层提取，所以计算法向量和深度可以知道
+ * 该 MapPoint 在对应的关键帧的金字塔哪一层可以提取到。
+ * 明确了目的，下一步就是方法问题，所谓的 法向量 ，就是说 相机光心 指向地图点的方向，
+ * 计算这个方向方法很简单，只需要用 地图点的三维坐标 减去 相机光心的三维坐标 就可以
+ */
 void MapPoint::UpdateNormalAndDepth()
 {
-    map<KeyFrame*,size_t> observations;
+    map<KeyFrame*,size_t> observations; // observations[KF] = idx of MapPoint
     KeyFrame* pRefKF;
     cv::Mat Pos;
     {
@@ -424,26 +456,31 @@ void MapPoint::UpdateNormalAndDepth()
 
     cv::Mat normal = cv::Mat::zeros(3,1,CV_32F);
     int n=0;
+    // one mappoint can be observed by many keyframes
+    // So, for each observation/keyframe, calculate the normal
     for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
     {
         KeyFrame* pKF = mit->first;
         cv::Mat Owi = pKF->GetCameraCenter();
         // normal vector, observation direction
         // camera center points to mappoint
-        cv::Mat normali = mWorldPos - Owi; 
+        // 观测点坐标 减去 关键帧中 相机光心的坐标 就是 观测方向
+        // 也就是说相机光心指向地图点
+        cv::Mat normali = mWorldPos - Owi;
+        // 对其进行 归一化 后 相加
         normal = normal + normali/cv::norm(normali);
         n++;
     }
 
     cv::Mat PC = Pos - pRefKF->GetCameraCenter();
     const float dist = cv::norm(PC);
-    const int level = pRefKF->mvKeysUn[observations[pRefKF]].octave;
+    const int level = pRefKF->mvKeysUn[observations[pRefKF]].octave; // pRefKF->mvKeysUn[observations[pRefKF]]: MapPoint<->KeyPoint
     const float levelScaleFactor =  pRefKF->mvScaleFactors[level];
     const int nLevels = pRefKF->mnScaleLevels;
 
     // 深度范围 [mfMinDistance, mfMaxDistance]
-    // 地图点到参考帧（只有一帧）相机中心距离 乘上 参考帧中描述子获取金字塔放大尺度，得到最大距离mfMaxDistance;
-    // 最大距离除以整个金字塔最高层的放大尺度 得到 最小距离mfMinDistance.
+    // 地图点到参考帧（只有一帧）相机中心距离 乘上 参考帧中描述子获取金字塔放大尺度，得到最大距离 mfMaxDistance
+    // 最大距离 除以 整个金字塔最高层 的 放大尺度 得到 最小距离 mfMinDistance
     // 通常说来，距离较近的地图点，将在金字塔较高的地方提出，
     // 距离较远的地图点，在金字塔层数较低的地方提取出（金字塔层数越低，分辨率越高，才能识别出远点）
     // 因此，通过地图点的信息（主要对应描述子），我们可以获得该地图点对应的金字塔层级
@@ -468,6 +505,31 @@ float MapPoint::GetMaxDistanceInvariance()
     return 1.2f*mfMaxDistance;
 }
 
+
+/**
+ * 该函数的作用是 预测 特征点 在 金字塔 哪一层 可以找到
+ * 
+ * 注意金字塔ScaleFactor和距离的关系：
+ * 当特征点对应 ScaleFactor 为1.2的意思是：图片分辨率下降 1.2 倍后，可以提取出该特征点
+ * (分辨率更高的时候，肯定也可以提出，这里取 金字塔 中能够提取出该特征点 最高层级 作为该特征点的层级)，
+ * 同时，由当前特征点的距离，推测所在的层级。
+ * 
+ * 
+ *              ________
+ * Nearer      /________\           level: n-1  --> dmin
+ *            /__________\                                  d/dmin = 1.2^(n-1-m)
+ *           /____________\         level: m    --> d
+ *          /______________\
+ *         /________________\                               dmax/d = 1.2^m
+ * Farther/__________________\      level: 0    --> dmax
+ * 
+ *             log(dmax/d)
+ * m = ceil (---------------)
+ *              log(1.2)
+ * 
+ * @param currentDist   当前距离
+ * @param pKF           关键帧
+ */
 int MapPoint::PredictScale(const float &currentDist, KeyFrame* pKF)
 {
     float ratio;
@@ -484,6 +546,7 @@ int MapPoint::PredictScale(const float &currentDist, KeyFrame* pKF)
 
     return nScale;
 }
+
 
 int MapPoint::PredictScale(const float &currentDist, Frame* pF)
 {

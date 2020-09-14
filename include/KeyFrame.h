@@ -199,6 +199,7 @@ protected:
 
     cv::Mat Cw; // Stereo middel point. Only for visualization
 
+    // In one KF, there are many MapPoints, stored in mvpMapPoints
     // MapPoints associated to keypoints
     std::vector<MapPoint*> mvpMapPoints;
 
