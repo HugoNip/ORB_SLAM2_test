@@ -191,7 +191,7 @@ map<KeyFrame*, size_t> MapPoint::GetObservations()
 int MapPoint::Observations()
 {
     unique_lock<mutex> lock(mMutexFeatures);
-    return nObs;
+    return nObs;    // how many times that this MapPoint can be seen by keyframes
 }
 
 void MapPoint::SetBadFlag()

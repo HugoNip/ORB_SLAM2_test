@@ -323,8 +323,8 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs,
 /**
  * 当前帧位姿计算
  * 
- * 1) 直接把当前 keyframe 设为地图中的 节点
- * 2) 找出所有在当前 keyframe 中可见的的三维地图点, 对每一个地图点, 建立边。
+ * 1) 直接把当前 keyframe 设为地图中的 节点Vertex
+ * 2) 找出所有在当前 keyframe 中可见的的三维地图点, 对每一个地图点, 建立边
  *    边的两端分别是 keyframe 的 位姿 与当前地图点为位姿，
  *    边的观测值为该地图点在当前 keyframe 中的 二维位置 ，
  *    信息矩阵(权重)是观测值的偏离程度, 即3D地图点反投影回地图的误差。
@@ -344,20 +344,27 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs,
  * + Vertex：待优化当前帧的 Tcw
  * + measurement ：MapPoint在当前帧中的二维位置 (ul,v,ur)
  * + InfoMatrix : invSigma2 (与特征点所在的尺度有关)
+ * 
+ * 
+ * 3D-2D 最小化重投影误差 e = (u,v) - project(Tcw*Pw) \n
+ * **只优化Frame的Tcw**，不优化MapPoints的坐标
+ * 更新pFrame->mvbOutlier
+ * 更新了pFrame的位姿，pFrame->SetPose(pose);
+ * @param   pFrame  Frame
+ * @return          inliers数量
  */
 int Optimizer::PoseOptimization(Frame *pFrame)
 {
     // 构造g2o优化器
+    // 这里请参考Optimizer::BundleAdjustment的注释
     g2o::SparseOptimizer optimizer;
     g2o::BlockSolver_6_3::LinearSolverType * linearSolver;
 
-    linearSolver = 
-        new g2o::LinearSolverDense<g2o::BlockSolver_6_3::PoseMatrixType>();
+    linearSolver = new g2o::LinearSolverDense<g2o::BlockSolver_6_3::PoseMatrixType>();
 
     g2o::BlockSolver_6_3 * solver_ptr = new g2o::BlockSolver_6_3(linearSolver);
 
-    g2o::OptimizationAlgorithmLevenberg* solver = 
-        new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
+    g2o::OptimizationAlgorithmLevenberg* solver = new g2o::OptimizationAlgorithmLevenberg(solver_ptr);
     optimizer.setAlgorithm(solver);
 
     int nInitialCorrespondences=0;
@@ -390,7 +397,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     {
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);
 
-    // 遍历 pFrame 帧的 所有特征点 ， 添加g2o边
+    // 遍历 pFrame 帧的 所有特征点<->MapPoint， 添加g2o边
     for(int i=0; i<N; i++)
     {
         MapPoint* pMP = pFrame->mvpMapPoints[i];
@@ -400,8 +407,10 @@ int Optimizer::PoseOptimization(Frame *pFrame)
             // 此处 "<0"即代表单目
             if(pFrame->mvuRight[i]<0)
             {
+                // 记录添加了多少条边
                 nInitialCorrespondences++;
-                //先将这个特征点设置为 不是 Outlier ，也就是初始化
+
+                // 先将这个特征点设置为 不是 Outlier ，也就是初始化
                 pFrame->mvbOutlier[i] = false;
 
                 Eigen::Matrix<double,2,1> obs;
@@ -484,6 +493,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     }
     }
 
+    // 如果只添加了3条边
     if(nInitialCorrespondences<3)
         return 0;
 
@@ -494,8 +504,9 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     // 开始优化，总共优化四次，
     // 每次优化后，将 **观测** 分为 outlier 和 inlier， 
     // outlier不参与下次优化
-    // 由于每次优化后是对所有的观测进行 outlier 和 inlier 判别，
+    // 由于每次优化后是对**所有的观测**进行 outlier 和 inlier 判别，
     // 因此之前被判别为outlier有可能变成inlier，反之亦然
+    // 基于卡方检验计算出的阈值（假设测量有一个像素的偏差）
     const float chi2Mono[4]={5.991,5.991,5.991,5.991};
     const float chi2Stereo[4]={7.815,7.815,7.815, 7.815};
     const int its[4]={10,10,10,10};    
@@ -507,9 +518,11 @@ int Optimizer::PoseOptimization(Frame *pFrame)
         vSE3->setEstimate(Converter::toSE3Quat(pFrame->mTcw));
         // 只对level为0的边进行优化，此处 0 代表 inlier ，1 代表 outlier
         optimizer.initializeOptimization(0);
+        // 启动优化
         optimizer.optimize(its[it]);
 
         nBad=0;
+        // 遍历单目模式的每条边->**所有的观测**
         for(size_t i=0, iend=vpEdgesMono.size(); i<iend; i++)
         {
             g2o::EdgeSE3ProjectXYZOnlyPose* e = vpEdgesMono[i];
@@ -521,7 +534,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 e->computeError(); // NOTE g2o只会计算active edge的误差
             }
 
-            const float chi2 = e->chi2();
+            const float chi2 = e->chi2();   // based on error
 
             if(chi2>chi2Mono[it])
             {                
@@ -539,6 +552,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
                 e->setRobustKernel(0); // 前两次优化需要 RobustKernel , 其余的不需要
         }
 
+        // 遍历双目模式的每条边
         for(size_t i=0, iend=vpEdgesStereo.size(); i<iend; i++)
         {
             g2o::EdgeStereoSE3ProjectXYZOnlyPose* e = vpEdgesStereo[i];
@@ -573,8 +587,7 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     }    
 
     // Recover optimized pose and return number of inliers
-    g2o::VertexSE3Expmap* vSE3_recov = 
-        static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(0));
+    g2o::VertexSE3Expmap* vSE3_recov = static_cast<g2o::VertexSE3Expmap*>(optimizer.vertex(0));
     g2o::SE3Quat SE3quat_recov = vSE3_recov->estimate();
     cv::Mat pose = Converter::toCvMat(SE3quat_recov);
     pFrame->SetPose(pose); // 把优化后的位姿赋给当前帧
