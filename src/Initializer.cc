@@ -48,12 +48,12 @@ Initializer::Initializer(const Frame &ReferenceFrame, float sigma, int iteration
 
 
 /**
- * 这个函数包含了整个初始化的全部流程，主要包括以下步骤：
+ * @brief 这个函数包含了整个初始化的全部流程，主要包括以下步骤：
  * 1）**重新组织** 特征点对。其实就是重新弄了一下数据结构，把匹配的点对序号放在一起，方便后面使用
  * 2）特征点对 **分组**。这一步主要是为了给 RANSAC 使用，对特征点对按照 RANSAC循环次数 随机分组
  * 3）两个线程 同时计算 **单应性矩阵H** 和 **本质矩阵F**
  * 4）根据 三角化 成功点数 来判断是 **选** 单应性矩阵H 和 本质矩阵F 中的哪一个
- * 5）根据矩阵，使用 SFM方法 **恢复 R 和 T**
+ * 5）根据矩阵，使用 SFM方法 **恢复 R 和 t**
  * 
  * @param CurrentFrame      当前帧
  * @param vMatches12        ORB计算的 初步匹配结果

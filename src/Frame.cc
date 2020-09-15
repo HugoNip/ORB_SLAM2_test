@@ -312,6 +312,10 @@ void Frame::ExtractORB(int flag, const cv::Mat &im)
         (*mpORBextractorRight)(im,cv::Mat(),mvKeysRight,mDescriptorsRight);
 }
 
+
+/**
+ * set initial pose for current frame
+ */
 void Frame::SetPose(cv::Mat Tcw)
 {
     mTcw = Tcw.clone();
