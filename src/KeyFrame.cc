@@ -218,7 +218,7 @@ vector<KeyFrame*> KeyFrame::GetBestCovisibilityKeyFrames(const int &N)
         return mvpOrderedConnectedKeyFrames;
     else
         return vector<KeyFrame*>(mvpOrderedConnectedKeyFrames.begin(),
-                                 mvpOrderedConnectedKeyFrames.begin()+N);
+                                 mvpOrderedConnectedKeyFrames.begin()+N); // Orderly
 }
 
 
@@ -440,7 +440,7 @@ void KeyFrame::UpdateConnections()
     if(vPairs.empty())
     {
         // 如果每个关键帧与它共视的关键帧的个数都少于 th ，
-        // 那就只更新与其它关键帧共视程度最高的关键帧 的mConnectedKeyFrameWeights
+        // 那就只更新与其它关键帧共视程度最高的关键帧的 mConnectedKeyFrameWeights
         // 这是对之前 th 这个阈值可能过高的一个补丁
         vPairs.push_back(make_pair(nmax, pKFmax));
         pKFmax->AddConnection(this,nmax);

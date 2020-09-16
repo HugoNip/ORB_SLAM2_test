@@ -1123,7 +1123,16 @@ bool Tracking::TrackWithMotionModel()
 }
 
 
-
+/**
+* @brief 对mvpLocalKeyFrames，mvpLocalMapPoints进行跟踪
+* 
+* 1. 更新局部地图，包括局部关键帧和关键点
+* 2. 以局部地图的mappoint为范围和当前帧进行特征匹配
+* 3. 根据匹配对通过BA估计当前帧的姿态
+* 4. 更新当前帧的MapPoints被观测程度，并统计跟踪局部地图的效果
+* @return 根据跟踪局部地图的效果判断当前帧的跟踪成功与否，返回其判断结果
+* @see V-D track Local Map
+*/
 bool Tracking::TrackLocalMap()
 {
     // We have an estimation of the camera pose and some map points tracked in the frame.
@@ -1515,6 +1524,7 @@ void Tracking::UpdateLocalKeyFrames()
 
         KeyFrame* pKF = *itKF;
 
+        // 1.取出此关键帧itKF在essential graph中共视程度最高的10个关键帧
         const vector<KeyFrame*> vNeighs = pKF->GetBestCovisibilityKeyFrames(10);
 
         for(vector<KeyFrame*>::const_iterator itNeighKF=vNeighs.begin(), itEndNeighKF=vNeighs.end(); itNeighKF!=itEndNeighKF; itNeighKF++)
@@ -1524,6 +1534,7 @@ void Tracking::UpdateLocalKeyFrames()
             {
                 if(pNeighKF->mnTrackReferenceForFrame!=mCurrentFrame.mnId)
                 {
+                    // 向 mvpLocalKeyFrames 添加更多的关键帧
                     mvpLocalKeyFrames.push_back(pNeighKF);
                     pNeighKF->mnTrackReferenceForFrame=mCurrentFrame.mnId;
                     break;
@@ -1531,6 +1542,8 @@ void Tracking::UpdateLocalKeyFrames()
             }
         }
 
+        // 2.取出此关键帧itKF在Spanning tree中的 子节点
+        // Spanning tree的节点为关键帧，共视程度最高的那个关键帧设置为节点在Spanning Tree中的父节点
         const set<KeyFrame*> spChilds = pKF->GetChilds();
         for(set<KeyFrame*>::const_iterator sit=spChilds.begin(), send=spChilds.end(); sit!=send; sit++)
         {
@@ -1539,6 +1552,7 @@ void Tracking::UpdateLocalKeyFrames()
             {
                 if(pChildKF->mnTrackReferenceForFrame!=mCurrentFrame.mnId)
                 {
+                    // 向 mvpLocalKeyFrames 添加更多的关键帧
                     mvpLocalKeyFrames.push_back(pChildKF);
                     pChildKF->mnTrackReferenceForFrame=mCurrentFrame.mnId;
                     break;
@@ -1546,6 +1560,7 @@ void Tracking::UpdateLocalKeyFrames()
             }
         }
 
+        // 3.取出此关键帧itKF在Spanning tree中的父节点
         KeyFrame* pParent = pKF->GetParent();
         if(pParent)
         {
@@ -1561,6 +1576,7 @@ void Tracking::UpdateLocalKeyFrames()
 
     if(pKFmax)
     {
+        // 更新参考关键帧为有共视的mappoint关键帧共视程度最高（共视的mappoint数量最多）的关键帧
         mpReferenceKF = pKFmax;
         mCurrentFrame.mpReferenceKF = mpReferenceKF;
     }
