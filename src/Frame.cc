@@ -596,7 +596,7 @@ void Frame::ComputeStereoMatches()
 
     const int nRows = mpORBextractorLeft->mvImagePyramid[0].rows;
 
-    //Assign keypoints to row table
+    // Assign keypoints to row table
     // 步骤1：建立特征点搜索范围对应表，一个特征点在一个带状区域内搜索匹配特征点
     // 匹配搜索的时候，不仅仅是在一条横线上搜索，而是在一条横向搜索带上搜索,
     // 简而言之，原本每个特征点的纵坐标为1，这里把特征点体积放大，纵坐标占好几行
