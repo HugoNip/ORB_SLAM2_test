@@ -351,7 +351,7 @@ void Optimizer::BundleAdjustment(const vector<KeyFrame *> &vpKFs,
  * 更新pFrame->mvbOutlier
  * 更新了pFrame的位姿，pFrame->SetPose(pose);
  * @param   pFrame  Frame
- * @return          inliers数量
+ * @return          inliers 数量
  */
 int Optimizer::PoseOptimization(Frame *pFrame)
 {
