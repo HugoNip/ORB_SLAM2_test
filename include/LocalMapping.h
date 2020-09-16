@@ -37,6 +37,9 @@ class Tracking;
 class LoopClosing;
 class Map;
 
+/**
+ * LocalMapping是管理局部地图的类，管理的内容包括关键帧和地图点，所谓管理就是增加、删除和修正位姿
+ */
 class LocalMapping
 {
 public:
@@ -52,14 +55,19 @@ public:
     void InsertKeyFrame(KeyFrame* pKF);
 
     // Thread Synch
+    // 当检测到闭环时，请求局部地图停止，防止局部地图线程中InsertKeyFrame函数插入新的关键帧
     void RequestStop();
     void RequestReset();
     bool Stop();
     void Release();
     bool isStopped();
     bool stopRequested();
+
+    // 返回 mbAcceptKeyFrames ，查询局部地图管理器是否繁忙
     bool AcceptKeyFrames();
+    // 设置 mbAcceptKeyFrames ，false表示告诉Tracking，LocalMapping正处于繁忙状态，不能接受插入新的keyframe
     void SetAcceptKeyFrames(bool flag);
+
     bool SetNotStop(bool flag);
 
     void InterruptBA();
@@ -74,14 +82,34 @@ public:
 
 protected:
 
+    // 返回 mlNewKeyFrames 是否为空，也就是查询**等待处理的关键帧列表**是否空
     bool CheckNewKeyFrames();
-    void ProcessNewKeyFrame();
-    void CreateNewMapPoints();
 
-    void MapPointCulling();
-    void SearchInNeighbors();
+    /**
+     * @brief 处理列表中的关键帧
+     * 
+     * - 计算Bow，加速三角化新的MapPoints
+     * - 关联当前关键帧至MapPoints，并更新MapPoints的平均观测方向和观测距离范围
+     * - 插入**关键帧**，更新Covisibility图和Essential图，以及spanningtree
+     */
+    void ProcessNewKeyFrame();  // update keyframe
 
-    void KeyFrameCulling();
+    /** 
+     * 1.找出和当前关键帧共视程度前10/20（单目/双目RGBD）的**关键帧**
+     * 2.计算这些关键帧和当前关键帧的**F矩阵**
+     * 3.在满足对级约束条件下，匹配关键帧之间的特征点，通过BOW加速**匹配**
+     */
+    void CreateNewMapPoints();  // update MapPoints
+
+    // 剔除 ProcessNewKeyFrame 和 CreateNewMapPoints 函数中引入在 mlpRecentAddedMapPoints 的质量不好的 MapPoints
+    void MapPointCulling();     // update MapPoints
+
+    // 检查并融合与当前关键帧共视程度高的帧重复的MapPoints
+    void SearchInNeighbors();   // update MapPoints
+
+    // 检测并剔除当前帧相邻的关键帧中**冗余的**关键帧**
+    // 剔除的标准是：该关键帧的90%的MapPoints可以被其它至少3个关键帧观测到
+    void KeyFrameCulling();     // update keyframe
 
     cv::Mat ComputeF12(KeyFrame* &pKF1, KeyFrame* &pKF2);
 
@@ -119,6 +147,7 @@ protected:
     bool mbNotStop;
     std::mutex mMutexStop;
 
+    // 是否能接受插入新的keyframe标志位
     bool mbAcceptKeyFrames;
     std::mutex mMutexAccept;
 };
