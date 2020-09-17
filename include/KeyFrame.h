@@ -99,17 +99,20 @@ public:
     /**
      * 向关键帧添加mappoint，让keyframe知道自己可以看到哪些mappoint
      * @param pMP 添加的mappoint
-     * @param idx mappoint在此帧对应的特征点的序号
+     * @param idx mappoint在此帧对应的特征点keypoint的序号
      */
     void AddMapPoint(MapPoint* pMP, const size_t &idx);
     void EraseMapPointMatch(const size_t &idx);
     void EraseMapPointMatch(MapPoint* pMP);
     void ReplaceMapPointMatch(const size_t &idx, MapPoint* pMP);
     std::set<MapPoint*> GetMapPoints();
-    // 外部接口,大小是mvKeys大小，表示mappoint和此帧特征点(KeyPoint)的联系。如果没有联系则为NULL
+
+    // 外部接口,大小是mvKeys大小,表示mappoint和此帧特征点(KeyPoint)的联系。如果没有联系则为NULL
     std::vector<MapPoint*> GetMapPointMatches();
+
     // 返回此keyframe可以看到的mappoint，minObs表示返回的mappoint能被共视的最小值
     int TrackedMapPoints(const int &minObs);
+
     MapPoint* GetMapPoint(const size_t &idx);
 
     // KeyPoint functions

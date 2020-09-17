@@ -1092,7 +1092,7 @@ void Tracking::UpdateLastFrame()
  * 步骤2：  将上一帧带有的**mappoints**，根据步骤1估计的R，T投影到cur frame上
  * 步骤3：  设定一个阈值，在cur frame投影点附近进行搜索，以找到与上一帧中**匹配**的ORB特征点
  * 步骤4：  步骤3已经将两帧的ORB特征点进行了**匹配**，接着通过**优化3D-2D的重投影误差(PnP)**来获得cur frame的**位姿Tcw**
- * 步骤5：  优化位姿后 剔除outlier的mvpMapPoints
+ * 步骤5：  优化位姿后,剔除outlier的mvpMapPoints
  * 
  * 1. 非单目情况，需要对上一帧产生一些新的MapPoints（临时）
  * 2. 将上一帧的MapPoints投影到当前帧的图像平面上，在投影的位置进行区域匹配
@@ -1875,7 +1875,8 @@ bool Tracking::Relocalization()
                 // np为mCurrentFrame的特征点数量
                 const int np = vbInliers.size(); // 内点个数
 
-                // 根据vbInliers更新mCurrentFrame.mvpMapPoints，也就是根据vbInliers更新mCurrentFrame的特征点与哪些mappoint匹配
+                // 根据vbInliers更新mCurrentFrame.mvpMapPoints
+                // 也就是根据vbInliers更新mCurrentFrame的特征点与哪些mappoint匹配
                 // set<MapPoint*> sFound;
 		        // 并记下当前mCurrentFrame与哪些mappoint匹配到 sFound ，以便后面快速查询
                 // vvpMapPointMatches[i][j]就表示mCurrentFrame的第j个特征点如果是经由第i个候选关键帧匹配mappoint，是哪个mappoint

@@ -254,11 +254,11 @@ int KeyFrame::GetWeight(KeyFrame *pKF)
 
 
 // MapPoint相关
-// 这一类函数的内容同样比较简单，主要围绕存放 MapPoint 的容器 mvpMapPoints 进行。
+// 这一类函数的内容同样比较简单，主要围绕存放MapPoint的容器mvpMapPoints进行
 void KeyFrame::AddMapPoint(MapPoint *pMP, const size_t &idx)
 {
     unique_lock<mutex> lock(mMutexFeatures);
-    mvpMapPoints[idx]=pMP;
+    mvpMapPoints[idx]=pMP;  // idx of keypoint <-> mappoint
 }
 
 
@@ -302,7 +302,7 @@ set<MapPoint*> KeyFrame::GetMapPoints()
 }
 
 
-// 获取被观测相机数大于等于 minObs 的 MapPoint
+// 获取被观测相机数大于等于minObs的MapPoint
 int KeyFrame::TrackedMapPoints(const int &minObs)
 {
     unique_lock<mutex> lock(mMutexFeatures);

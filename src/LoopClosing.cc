@@ -110,7 +110,7 @@ bool LoopClosing::DetectLoop()
         mpCurrentKF->SetNotErase();
     }
 
-    //If the map contains less than 10 KF or less than 10 KF have passed from last loop detection
+    // If the map contains less than 10 KF or less than 10 KF have passed from last loop detection
     if(mpCurrentKF->mnId<mLastLoopKFid+10)
     {
         mpKeyFrameDB->add(mpCurrentKF);

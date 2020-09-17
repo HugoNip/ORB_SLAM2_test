@@ -397,10 +397,10 @@ int Optimizer::PoseOptimization(Frame *pFrame)
     {
     unique_lock<mutex> lock(MapPoint::mGlobalMutex);
 
-    // 遍历 pFrame 帧的 所有特征点<->MapPoint， 添加g2o边
+    // 遍历pFrame帧的所有特征点<->MapPoint，添加g2o边
     for(int i=0; i<N; i++)
     {
-        MapPoint* pMP = pFrame->mvpMapPoints[i];
+        MapPoint* pMP = pFrame->mvpMapPoints[i];    // Frame
         if(pMP)
         {
             // Monocular observation

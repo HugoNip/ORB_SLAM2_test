@@ -38,7 +38,7 @@ class LoopClosing;
 class Map;
 
 /**
- * LocalMapping是管理局部地图的类，管理的内容包括关键帧和地图点，所谓管理就是增加、删除和修正位姿
+ * LocalMapping是管理局部地图的类，管理的内容包括**关键帧**和**地图点**，所谓管理就是增加、删除和修正位姿
  */
 class LocalMapping
 {

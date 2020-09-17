@@ -194,6 +194,13 @@ int MapPoint::Observations()
     return nObs;    // how many times that this MapPoint can be seen by keyframes
 }
 
+
+/**
+ * 1. set bad flag
+ * 2. clear all observations for this mappoint 
+ * 
+ * 如果该MapPoint被观测的次数小于2，那么这个MapPoint就没有存在的必要了，需要删除
+ */
 void MapPoint::SetBadFlag()
 {
     map<KeyFrame*,size_t> obs;
