@@ -347,12 +347,12 @@ MapPoint* KeyFrame::GetMapPoint(const size_t &idx)
 
 /**
  * 该函数主要包含以下三部分内容：
- * a. 首先获得该KF的所有 MapPoint ，然后遍历观测到这些3d点的 其它所有KFs
- *    对每一个找到的KF ，先存储到相应的容器中
- * b. 计算所有共视帧与该帧的 连接权重 ，权重 即为 共视的3d点的 数量，对这些连接按照权重从大到小进行排序。
+ * a. 首先获得该KF的**所有MapPoint**，然后遍历观测到这些3d点的其它所有KFs, 对每一个找到的KF，先存储到相应的容器中
+ * b. 计算所有共视帧与该帧的**连接权重**，权重 即为 共视的3d点的 数量，对这些连接按照权重从大到小进行排序。
  *    当该权重必须大于一个阈值，便 在两帧之间 建立边，如果没有超过该阈值的权重，那么就只保留 权重最大的 边
- *  `（与其它关键帧的 共视程度 比较高）
- * c. 更新 covisibility graph，即把计算的 边 用来给 图 赋值，然后设置 spanning tree 中该帧的 父节点 ，
+ *   （与其它关键帧的 共视程度 比较高）
+ *    edge is built between the KeyFrames with the most shared MapPoints
+ * c. **更新 covisibility graph**，即把计算的 边 用来给 图 赋值，然后设置 spanning tree 中该帧的 父节点 ，
  *    即共视程度最高的那一帧
  */
 void KeyFrame::UpdateConnections()

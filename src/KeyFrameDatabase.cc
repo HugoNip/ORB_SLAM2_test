@@ -82,6 +82,15 @@ void KeyFrameDatabase::clear()
  * 1. covisible
  * 2. share words
  * 3. enough words
+ * 
+ * 在除去当前帧共视关系的关键帧数据中，检测闭环候选帧(这个函数在KeyFrameDatabase中)
+ * 闭环候选帧删选过程：
+ * 1. BoW得分>minScore;
+ * 2. 统计满足1的关键帧中有共同单词最多的单词数maxcommonwords
+ * 3. **筛选**出共同单词数大于mincommons(=0.8*maxcommons)的**关键帧**
+ * 4. 相连的关键帧分为一组，计算组得分（总分）,得到最大总分bestAccScore,筛选出总分大于minScoreToRetain(=0.75*bestAccScore)的组
+ *    用得分最高的候选帧IAccScoreAndMathch代表该组，计算组得分的目的是剔除单独一帧得分较高，但是没有共视关键帧作为闭环来说不够鲁棒
+ *    对于通过了闭环检测的关键帧，还需要通过连续性检测(连续三帧都通过上面的筛选)，才能作为闭环候选帧
  */
 vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float minScore)
 {   
