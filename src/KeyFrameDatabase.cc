@@ -74,29 +74,46 @@ void KeyFrameDatabase::clear()
 
 
 /**
- * 上面说道，这个函数的流程和 DetectRelocalizationCandidates 唯一的区别是
+ * 在KeyFrameDatabase，以及与pKF在covisibility graph连接的keyframe中找出**与pKF可能形成闭环的候选帧**
+ * 与DetectRelocalizationCandidates的区别是，在最开始先搜索了在covisibility graph与其连接的关键帧
  * 忽略和自己已有共视关系的关键帧
+ * 
+ * loop closing condition:
+ * 1. covisible
+ * 2. share words
+ * 3. enough words
  */
 vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float minScore)
-{
+{   
+    // Part 1: sets contains KeyFrames that has a covisibile relationship with pKF
+    // 返回此关键帧在Covisibility graph中与之相连接（有共视关系）的节点
     set<KeyFrame*> spConnectedKeyFrames = pKF->GetConnectedKeyFrames();
+    // 和pKF有**相同单词**且具有**共视关系**的关键帧将会放在 lKFsSharingWords
     list<KeyFrame*> lKFsSharingWords;
 
-    // Search all keyframes that share a word with current keyframes
+    // Part 2: sets contains KeyFrames that shares same word pKF
+    // Search all keyframes that **share a word** with current keyframes
     // Discard keyframes connected to the query keyframe
+    // 找出与pKF有相同单词的关键帧
     {
         unique_lock<mutex> lock(mMutex);
 
+        // 遍历pKF中Bow里的每个**单词**
         for(DBoW2::BowVector::const_iterator vit=pKF->mBowVec.begin(), vend=pKF->mBowVec.end(); vit != vend; vit++)
         {
-            list<KeyFrame*> &lKFs =   mvInvertedFile[vit->first];
+            // 通过单词id得到与之有相同单词的**关键帧**
+            list<KeyFrame*> &lKFs = mvInvertedFile[vit->first];
 
+            // 判断lKFs中关键帧是否复合要求
             for(list<KeyFrame*>::iterator lit=lKFs.begin(), lend= lKFs.end(); lit!=lend; lit++)
             {
                 KeyFrame* pKFi=*lit;
+                // 如果pKFi被标记访问过
+                // 忽略和自己已有共视关系的关键帧
                 if(pKFi->mnLoopQuery!=pKF->mnId)
                 {
                     pKFi->mnLoopWords=0;
+                    // 如果pKFi和pKF有共视关系
                     // 此处如果if条件成立，代表没有共视关系，此时才会进入执行语句
                     // 换言之，如果有共视关系，就直接忽略了，
                     // 这是它和DetectRelocalizationCandidates唯一的区别               
@@ -106,10 +123,16 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
                         lKFsSharingWords.push_back(pKFi);
                     }
                 }
+                // 单词投票
                 pKFi->mnLoopWords++;
             }
         }
     }
+
+    // KFs from Part 1 and Part 2 are stored in lKFsSharingWords
+    // 
+    // ----------------------------- Finish searching candidates -------------------------------------
+    // ----------------------------- Start compare ---------------------------------------------------
 
     if(lKFsSharingWords.empty())
         return vector<KeyFrame*>();
@@ -117,6 +140,8 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
     list<pair<float,KeyFrame*> > lScoreAndMatch;
 
     // Only compare against those keyframes that share enough words
+    // 在lKFsSharingWords找出nLoopWords的**最大值**，也就是**单词投票最多的关键帧**
+    // also compute min value
     int maxCommonWords=0;
     for(list<KeyFrame*>::iterator lit=lKFsSharingWords.begin(), lend= lKFsSharingWords.end(); lit!=lend; lit++)
     {
@@ -128,20 +153,22 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
 
     int nscores=0;
 
+    // select based on similarity score
     // Compute similarity score. Retain the matches whose score is higher than minScore
+    // 遍历 lKFsSharingWords 中的keyframe，当其中的keyframe的 mLoopScore 大于阈值minScore则计算相似度后放入 lScoreAndMatch 中
     for(list<KeyFrame*>::iterator lit=lKFsSharingWords.begin(), lend= lKFsSharingWords.end(); lit!=lend; lit++)
     {
         KeyFrame* pKFi = *lit;
 
-        if(pKFi->mnLoopWords>minCommonWords)
+        if(pKFi->mnLoopWords>minCommonWords)    // need to have enough commonwords, then it can compute similarity score
         {
             nscores++;
 
-            float si = mpVoc->score(pKF->mBowVec,pKFi->mBowVec);
+            float si = mpVoc->score(pKF->mBowVec,pKFi->mBowVec);    // SImilarity score
 
             pKFi->mLoopScore = si;
             if(si>=minScore)
-                lScoreAndMatch.push_back(make_pair(si,pKFi));
+                lScoreAndMatch.push_back(make_pair(si,pKFi));       // list<pair<score, KF>>
         }
     }
 
@@ -151,32 +178,44 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
     list<pair<float,KeyFrame*> > lAccScoreAndMatch;
     float bestAccScore = minScore;
 
+    // ----------------------------------- Finish compute similarity score -------------------------------------
+    // ----------------------------------- Start to select the best candidate ----------------------------------
+
+    // select based on accumulate score
     // Lets now accumulate score by covisibility
+    // 遍历 lScoreAndMatch 中的**keyframe**，找出其共视图中与此keyframe连接的权值前N=10的节点，加上原keyframe总共最多有**11个keyframe**
+    // 累加这11个keyframe的相似度得分，然后在11个keyframe中选择相似度得分最高的那个放入 lAccScoreAndMatch 中
+    // 在遍历过程中计算bestAccScore，也就是AccScore的最大值，后面的再次筛选有用
     for(list<pair<float,KeyFrame*> >::iterator it=lScoreAndMatch.begin(), itend=lScoreAndMatch.end(); it!=itend; it++)
     {
         KeyFrame* pKFi = it->second;
-        vector<KeyFrame*> vpNeighs = pKFi->GetBestCovisibilityKeyFrames(10);
+        // 返回共视图中与此keyframe连接的权值前10的节点keyframe
+        vector<KeyFrame*> vpNeighs = pKFi->GetBestCovisibilityKeyFrames(10);    // 11 KeyFrames
 
         float bestScore = it->first;
         float accScore = it->first;
         KeyFrame* pBestKF = pKFi;
+
+        // for each keyframe 1/11
         for(vector<KeyFrame*>::iterator vit=vpNeighs.begin(), vend=vpNeighs.end(); vit!=vend; vit++)
         {
             KeyFrame* pKF2 = *vit;
+            // 如果pKF2与pKF有相同的单词，且在essentialgraph中连接，
+	        // 且pKF2的mLoopScore大于阈值minScore则将其相似度的值累加至accScore
             if(pKF2->mnLoopQuery==pKF->mnId && pKF2->mnLoopWords>minCommonWords)
             {
-                accScore+=pKF2->mLoopScore;
-                if(pKF2->mLoopScore>bestScore)
+                accScore+=pKF2->mLoopScore;         // accumulate score
+                if(pKF2->mLoopScore>bestScore)      // find a max value
                 {
-                    pBestKF=pKF2;
-                    bestScore = pKF2->mLoopScore;
+                    pBestKF=pKF2;                   // update BestKF to KF with best score
+                    bestScore = pKF2->mLoopScore;   // update best score
                 }
             }
         }
 
-        lAccScoreAndMatch.push_back(make_pair(accScore,pBestKF));
-        if(accScore>bestAccScore)
-            bestAccScore=accScore;
+        lAccScoreAndMatch.push_back(make_pair(accScore,pBestKF));   // 11
+        if(accScore>bestAccScore)                   // find a max value
+            bestAccScore=accScore;                  // update best accscore
     }
 
     // Return all those keyframes with a score higher than 0.75*bestScore
@@ -184,8 +223,9 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
 
     set<KeyFrame*> spAlreadyAddedKF;
     vector<KeyFrame*> vpLoopCandidates;
-    vpLoopCandidates.reserve(lAccScoreAndMatch.size());
+    vpLoopCandidates.reserve(lAccScoreAndMatch.size()); // size: 11
 
+    // 返回 lAccScoreAndMatch 中所有得分超过0.75*bestAccScore的keyframe集合
     for(list<pair<float,KeyFrame*> >::iterator it=lAccScoreAndMatch.begin(), itend=lAccScoreAndMatch.end(); it!=itend; it++)
     {
         if(it->first>minScoreToRetain)
@@ -199,8 +239,7 @@ vector<KeyFrame*> KeyFrameDatabase::DetectLoopCandidates(KeyFrame* pKF, float mi
         }
     }
 
-
-    return vpLoopCandidates;
+    return vpLoopCandidates;    // vector<KeyFrame>, size: <= 11
 }
 
 

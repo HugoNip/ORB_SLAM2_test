@@ -267,6 +267,20 @@ void LocalMapping::MapPointCulling()
  * 1.找出和当前关键帧共视程度前10/20（单目/双目RGBD）的关键帧
  * 2.计算这些关键帧和当前关键帧的F矩阵；
  * 3.在满足对级约束条件下，匹配关键帧之间的特征点，通过BOW加速匹配；
+ * 
+ * 
+ * 主要包括以下流程：
+ * 1）在当前关键帧的共视关键帧中找到共视程度最高的nn帧相邻帧vpNeighKFs
+ * 2）遍历相邻关键帧vpNeighKFs，得到基线向量vBaseline = Ow2-Ow1
+ * 3）判断相机运动的基线是不是足够长，邻接关键帧的场景深度中值medianDepthKF2，baseline与景深的比例，如果特别远(比例特别小)，那么不考虑当前邻接的关键帧，不生成3D点
+ * 4）根据两个关键帧的位姿计算它们之间的基本矩阵F
+ * 5) 通过极线约束限制匹配时的搜索范围，对满足对极约束的特征点进行特征点匹配
+ * 6）对每对匹配通过三角化生成3D点,和Triangulate函数差不多
+ * 7）接着分别检查新得到的点在两个平面上的**重投影误差**，如果大于一定的值，直接抛弃该点
+ * 8）检查**尺度连续性**
+ * 9）如果满足对极约束则建立当前帧的地图点及其属性（a.观测到该MapPoint的关键帧 b.该MapPoint的描述子 c.该MapPoint的平均观测方向和深度范围）
+ * 10）将地图点加入关键帧，加入全局map 
+ * 
  */
 void LocalMapping::CreateNewMapPoints()
 {
@@ -453,6 +467,7 @@ void LocalMapping::CreateNewMapPoints()
                 continue;
 
             // Check reprojection error in first keyframe
+            // 重投影误差
             const float &sigmaSquare1 = mpCurrentKeyFrame->mvLevelSigma2[kp1.octave];
             const float x1 = Rcw1.row(0).dot(x3Dt)+tcw1.at<float>(0);
             const float y1 = Rcw1.row(1).dot(x3Dt)+tcw1.at<float>(1);
@@ -481,6 +496,7 @@ void LocalMapping::CreateNewMapPoints()
 
             // Check reprojection error in second keyframe
             // 检验3d点投影到第二个关键帧的误差
+            // 重投影误差
             const float sigmaSquare2 = pKF2->mvLevelSigma2[kp2.octave];
             const float x2 = Rcw2.row(0).dot(x3Dt)+tcw2.at<float>(0);
             const float y2 = Rcw2.row(1).dot(x3Dt)+tcw2.at<float>(1);

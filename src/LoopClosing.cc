@@ -61,18 +61,23 @@ void LoopClosing::Run()
     while(1)
     {
         // Check if there are keyframes in the queue
+        // 如果有新的keyframe插入到闭环检测序列（在localmapping::run()结尾处插入）
         if(CheckNewKeyFrames())
         {
             // Detect loop candidates and check covisibility consistency
+            // 检测是否有闭环候选关键帧
             if(DetectLoop())
             {
-               // Compute similarity transformation [sR|t]
-               // In the stereo/RGBD case s=1
-               if(ComputeSim3())
-               {
-                   // Perform loop fusion and pose graph optimization
-                   CorrectLoop();
-               }
+                // Compute similarity transformation [sR|t]
+                // In the stereo/RGBD case s=1
+                // 计算候选关键帧的与当前帧的sim3并且返回是否形成闭环的判断
+		        // 并在候选帧中找出闭环帧
+		        // 并计算出当前帧和闭环帧的sim3
+                if(ComputeSim3())
+                {
+                    // Perform loop fusion and pose graph optimization
+                    CorrectLoop();
+                }
             }
         }       
 
@@ -100,8 +105,10 @@ bool LoopClosing::CheckNewKeyFrames()
     return(!mlpLoopKeyFrameQueue.empty());
 }
 
+
 bool LoopClosing::DetectLoop()
 {
+    // 先将要处理的闭环检测队列的关键帧弹出来一个
     {
         unique_lock<mutex> lock(mMutexLoopQueue);
         mpCurrentKF = mlpLoopKeyFrameQueue.front();
@@ -111,6 +118,7 @@ bool LoopClosing::DetectLoop()
     }
 
     // If the map contains less than 10 KF or less than 10 KF have passed from last loop detection
+    // 如果距离上次闭环没多久（小于10帧），或者map中关键帧总共还没有10帧，则不进行闭环检测
     if(mpCurrentKF->mnId<mLastLoopKFid+10)
     {
         mpKeyFrameDB->add(mpCurrentKF);
@@ -119,8 +127,10 @@ bool LoopClosing::DetectLoop()
     }
 
     // Compute reference BoW similarity score
-    // This is the lowest score to a connected keyframe in the covisibility graph
-    // We will impose loop candidates to have a higher similarity than this
+    // This is the **lowest score** to a connected keyframe in the covisibility graph
+    // We will impose loop candidates to have a **higher similarity** than this
+
+    //返回Covisibility graph中与此节点连接的节点（即关键帧），总的来说这一步是为了计算阈值 minScore
     const vector<KeyFrame*> vpConnectedKeyFrames = mpCurrentKF->GetVectorCovisibleKeyFrames();
     const DBoW2::BowVector &CurrentBowVec = mpCurrentKF->mBowVec;
     float minScore = 1;
@@ -131,14 +141,27 @@ bool LoopClosing::DetectLoop()
             continue;
         const DBoW2::BowVector &BowVec = pKF->mBowVec;
 
-        float score = mpORBVocabulary->score(CurrentBowVec, BowVec);
+        //遍历所有共视关键帧，计算当前关键帧与每个共视关键的bow相似度得分，计算 minScore
+        float score = mpORBVocabulary->score(CurrentBowVec, BowVec);    // minscore
 
         if(score<minScore)
             minScore = score;
     }
 
     // Query the database imposing the minimum score
-    vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectLoopCandidates(mpCurrentKF, minScore);
+    // 在最低相似度 minScore 的要求下，获得闭环检测的**候选帧集合**
+    // DetectLoopCandidates()忽略和自己已有共视关系的关键帧
+    //
+    // 在除去当前帧共视关系的关键帧数据中，检测闭环候选帧(这个函数在KeyFrameDatabase中)
+    // 闭环候选帧删选过程：
+    // 1. BoW得分>minScore;
+    // 2. 统计满足1的关键帧中有共同单词最多的单词数maxcommonwords
+    // 3. **筛选**出共同单词数大于mincommons(=0.8*maxcommons)的**关键帧**
+    // 4. 相连的关键帧分为一组，计算组得分（总分）,得到最大总分bestAccScore,筛选出总分大于minScoreToRetain(=0.75*bestAccScore)的组
+    //    用得分最高的候选帧IAccScoreAndMathch代表该组，计算组得分的目的是剔除单独一帧得分较高，但是没有共视关键帧作为闭环来说不够鲁棒
+    //    对于通过了闭环检测的关键帧，还需要通过连续性检测(连续三帧都通过上面的筛选)，才能作为闭环候选帧
+    
+    vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectLoopCandidates(mpCurrentKF, minScore);   // candidate KeyFrames
 
     // If there are no loop candidates, just add new keyframe and return false
     if(vpCandidateKFs.empty())
@@ -153,29 +176,50 @@ bool LoopClosing::DetectLoop()
     // Each candidate expands a covisibility group (keyframes connected to the loop candidate in the covisibility graph)
     // A group is consistent with a previous group if they share at least a keyframe
     // We must detect a consistent loop in several consecutive keyframes to accept it
+    // vpCandidateKFs 中的每个闭环检测的候选帧都会通过共视关键帧，扩展为一个 spCandidateGroup
+    // 对于这vpCandidateKFs.size()个spCandidateGroup进行连续性（consistency）判断
+
     mvpEnoughConsistentCandidates.clear();
 
     vector<ConsistentGroup> vCurrentConsistentGroups;
     vector<bool> vbConsistentGroup(mvConsistentGroups.size(),false);
-    for(size_t i=0, iend=vpCandidateKFs.size(); i<iend; i++)
+
+    // 遍历vpCandidateKFs，将其中每个关键帧都通过寻找在covisibility graph与自己连接的关键帧，扩展为一个spCandidateGroup
+    // 也就是遍历每一个spCandidateGroup
+    // FOR1
+    for(size_t i=0, iend=vpCandidateKFs.size(); i<iend; i++)    // v: std::vector<>
     {
         KeyFrame* pCandidateKF = vpCandidateKFs[i];
 
-        set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames();
-        spCandidateGroup.insert(pCandidateKF);
+        // 这个条件是否太宽松?pCandidateKF->GetVectorCovisibleKeyFrames()是否更好一点？
+        set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames();    // s: std::set<>
+        spCandidateGroup.insert(pCandidateKF);  // covisibile graph
 
         bool bEnoughConsistent = false;
         bool bConsistentForSomeGroup = false;
+
+        // 遍历 mvConsistentGroups ，判断spCandidateGroup与mvConsistentGroups[iG]是否**连续**
+        // current frame's covisibile graph vs covisibile graph of frame of current frame's covisibile graph
+	    // FOR2
         for(size_t iG=0, iendG=mvConsistentGroups.size(); iG<iendG; iG++)
         {
             set<KeyFrame*> sPreviousGroup = mvConsistentGroups[iG].first;
 
+            // 当前的spCandidateGroup之后要不要插入 vCurrentConsistentGroups
             bool bConsistent = false;
+
+            // 遍历spCandidateGroup里的关键帧，判断spCandidateGroup与mvConsistentGroups[iG]是否连续，
+	        // 也就是判断spCandidateGroup和mvConsistentGroups[iG]是否有**相同的关键帧**
+	        // FOR3
             for(set<KeyFrame*>::iterator sit=spCandidateGroup.begin(), send=spCandidateGroup.end(); sit!=send;sit++)
             {
+                // 如果在sPreviousGroup里找到sit
                 if(sPreviousGroup.count(*sit))
                 {
+                    // true表示标记sit所在的spCandidateGroup与sPreviousGroup连续（consistent）
+		            // 之后要插入到vCurrentConsistentGroups
                     bConsistent=true;
+                    // true表示有spCandidateGroup与vCurrentConsistentGroups中的元素存在连续（consistent）
                     bConsistentForSomeGroup=true;
                     break;
                 }

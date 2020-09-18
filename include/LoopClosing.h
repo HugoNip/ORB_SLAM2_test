@@ -40,7 +40,9 @@ class Tracking;
 class LocalMapping;
 class KeyFrameDatabase;
 
-
+/**
+ * LoopClosing是专门负责做闭环的类，它的主要功能就是检测闭环，计算闭环帧的相对位姿病以此做闭环修正
+ */
 class LoopClosing
 {
 public:
@@ -84,14 +86,36 @@ public:
 
 protected:
 
+    // 判断mlpLoopKeyFrameQueue是否非空
     bool CheckNewKeyFrames();
 
+    // 获取候选闭环关键帧放入 mvpEnoughConsistentCandidates
     bool DetectLoop();
 
+    /**
+     * 1. 候选帧和当前关键帧通过Bow加速描述子的**匹配**，剔除特征点匹配数少的闭环候选帧
+     * 2. 利用RANSAC粗略地计算出当前帧与闭环帧的**Sim3**，选出较好的那个sim3，确定闭环帧
+     * 2. 根据确定的闭环帧和对应的Sim3，对3D点进行投影找到更多**匹配**，通过优化的方法计算更精确的**Sim3**
+     * 3. 将闭环帧以及闭环帧相连的关键帧的MapPoints与当前帧的点进行**匹配**（当前帧---闭环帧+相连关键帧）
+     */
     bool ComputeSim3();
 
+    /**
+     * 针对CorrectedPosesMap里的**关键帧**，mvpLoopMapPoints投影到这个关键帧上与其特征点并进行**匹配**
+     * 如果**匹配成功的特征点**本身就有mappoint**，就用mvpLoopMapPoints里匹配的点**替换**，替换下来的mappoint则**销毁**
+     * @param CorrectedPosesMap 表示和当前帧在covisibility相连接的keyframe及其修正的位姿
+     */
     void SearchAndFuse(const KeyFrameAndPose &CorrectedPosesMap);
 
+    /**
+     * @brief 闭环
+     *
+     * 1. 通过求解的Sim3以及相对姿态关系，调整与当前帧相连的**关键帧位姿**以及这些关键帧观测到的**MapPoints的位置**（相连关键帧---当前帧）
+     * 2. 将闭环帧以及闭环帧相连的关键帧的MapPoints和与当前帧相连的关键帧的点进行**匹配**（相连关键帧+当前帧---闭环帧+相连关键帧）
+     * 3. 通过MapPoints的匹配关系**更新这些帧之间的连接关系**，即更新covisibility graph
+     * 4. 对Essential Graph（Pose Graph）进行优化，MapPoints的位置则根据优化后的位姿做相对应的调整
+     * 5. 创建线程进行全局Bundle Adjustment
+     */
     void CorrectLoop();
 
     void ResetIfRequested();
@@ -121,13 +145,28 @@ protected:
 
     // Loop detector variables
     KeyFrame* mpCurrentKF;
+    
+    // 找到的和mpCurrentKF形成闭环检测的关键帧
     KeyFrame* mpMatchedKF;
+
     std::vector<ConsistentGroup> mvConsistentGroups;
+
+    // 由DetectLoop()得到的候选关键帧
     std::vector<KeyFrame*> mvpEnoughConsistentCandidates;
+
+    // 将mpMatchedKF闭环关键帧相连的关键帧全部取出来放入vpLoopConnectedKFs
     std::vector<KeyFrame*> mvpCurrentConnectedKFs;
+
+    // 将mvpLoopMapPoints投影到当前关键帧mpCurrentKF进行投影得到的匹配
     std::vector<MapPoint*> mvpCurrentMatchedPoints;
+
+    // 将vpLoopConnectedKFs的MapPoints取出来放入mvpLoopMapPoints
     std::vector<MapPoint*> mvpLoopMapPoints;
+
+    // 表示通过ComputeSim3()算的当前帧mpCurrentKF到世界坐标系的变换
     cv::Mat mScw;
+
+    // 表示通过ComputeSim3()算的当前帧mpCurrentKF到世界坐标系的Sim3变换
     g2o::Sim3 mg2oScw;
 
     long unsigned int mLastLoopKFid;

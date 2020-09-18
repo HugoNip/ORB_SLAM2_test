@@ -269,7 +269,7 @@ protected:
     // 此关键帧与其他关键帧的共视关系及其mappoint共视数量
     std::map<KeyFrame*,int> mConnectedKeyFrameWeights;
 
-    // mvpOrderedConnectedKeyFrames 和 mvOrderedWeights 共同组成了论文里的covisibility graph
+    // mvpOrderedConnectedKeyFrames和mvOrderedWeights共同组成了论文里的covisibility graph
     // 与此关键帧具有连接关系的关键帧，其顺序按照**共视的mappoint数量**递减排序
     std::vector<KeyFrame*> mvpOrderedConnectedKeyFrames;
     // mvpOrderedConnectedKeyFrames 中共视的mappoint数量，也就是共视图covisibility graph权重，递减排列
