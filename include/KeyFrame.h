@@ -105,6 +105,8 @@ public:
     void EraseMapPointMatch(const size_t &idx);
     void EraseMapPointMatch(MapPoint* pMP);
     void ReplaceMapPointMatch(const size_t &idx, MapPoint* pMP);
+
+    // 得到map point不是bad 的mappoint 集合
     std::set<MapPoint*> GetMapPoints();
 
     // 外部接口,大小是mvKeys大小,表示mappoint和此帧特征点(KeyPoint)的联系。如果没有联系则为NULL

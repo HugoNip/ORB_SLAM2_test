@@ -286,6 +286,8 @@ void KeyFrame::ReplaceMapPointMatch(const size_t &idx, MapPoint* pMP)
 }
 
 
+// 得到map point不是bad的mappoint 集合
+// 
 set<MapPoint*> KeyFrame::GetMapPoints()
 {
     unique_lock<mutex> lock(mMutexFeatures);
@@ -295,7 +297,7 @@ set<MapPoint*> KeyFrame::GetMapPoints()
         if(!mvpMapPoints[i])
             continue;
         MapPoint* pMP = mvpMapPoints[i];
-        if(!pMP->isBad())
+        if(!pMP->isBad())   // 得到map point不是bad的mappoint 集合
             s.insert(pMP);
     }
     return s;
@@ -331,6 +333,7 @@ int KeyFrame::TrackedMapPoints(const int &minObs)
 }
 
 
+// all matched mappoint, including bad mappoint
 vector<MapPoint*> KeyFrame::GetMapPointMatches()
 {
     unique_lock<mutex> lock(mMutexFeatures);
@@ -338,6 +341,7 @@ vector<MapPoint*> KeyFrame::GetMapPointMatches()
 }
 
 
+// get one mappoint
 MapPoint* KeyFrame::GetMapPoint(const size_t &idx)
 {
     unique_lock<mutex> lock(mMutexFeatures);
