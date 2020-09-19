@@ -154,13 +154,13 @@ protected:
     // 由DetectLoop()得到的候选关键帧
     std::vector<KeyFrame*> mvpEnoughConsistentCandidates;
 
-    // 将mpMatchedKF闭环关键帧相连的关键帧全部取出来放入vpLoopConnectedKFs
+    // 将 mpMatchedKF 闭环关键帧相连的关键帧全部取出来放入 vpLoopConnectedKFs
     std::vector<KeyFrame*> mvpCurrentConnectedKFs;
 
-    // 将mvpLoopMapPoints投影到当前关键帧mpCurrentKF进行投影得到的匹配
+    // 将 mvpLoopMapPoints 投影到当前关键帧 mpCurrentKF 进行投影得到的**匹配**
     std::vector<MapPoint*> mvpCurrentMatchedPoints;
 
-    // 将vpLoopConnectedKFs的MapPoints取出来放入mvpLoopMapPoints
+    // 将 vpLoopConnectedKFs 的 MapPoints 取出来放入 mvpLoopMapPoints
     std::vector<MapPoint*> mvpLoopMapPoints;
 
     // 表示通过ComputeSim3()算的当前帧mpCurrentKF到世界坐标系的变换
