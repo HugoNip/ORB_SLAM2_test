@@ -106,6 +106,22 @@ bool LoopClosing::CheckNewKeyFrames()
 }
 
 
+/**
+ * @brief
+ * https://www.cnblogs.com/panda1/p/7001042.html
+ * 这个函数对应论文VII的A部分 -> Loop Candidates Detection
+ * 
+ * 第一步：计算当前帧mpCurrentKF和每一个与当前帧有共视关键帧们的Bow得分，得到**最小得分minScore**
+ * 
+ * 第二步：根据这个最小得分minScore 从mpKeyFrameDB（关键帧库）里面找出候选的的集合**vpCandidateKFs**
+ * 
+ * 第三步：对于vpCandidateKFs里面的每一个关键帧，作为当前关键帧。我们找出其有共视关系的关键帧们组成一个当前整体 spCandidateGroup
+ *        如果当前关键帧是vpCandidateKFs中第一帧的话，直接把这个spCandidateGroup整体，以分数0(set to zero)直接放到 mvConsistentGroups 中。
+ *        如果不是第一帧的话，我们就从 mvConsistentGroups 中依次取出里面的元素pair<set<KeyFrame*>,int>的first，这些元素也是关键帧们组成以前整体 sPreviousGroup
+ *        只要是当前整体中的任意一个关键帧能在以前整体里面找到，我们就要将当前整体的得分加一，并把当前整体放到mvConsistentGroups里面。
+ *        如果当前整体的得分大于3（mnCovisibilityConsistencyTh）了的话，当前帧就通过了一致性检测，把当前帧放到mvpEnoughConsistentCandidates，我们会找到很多候选的关键帧。
+ *        下一步用sim3找出闭环帧。注意该函数改变的就mvpEnoughConsistentCandidates的里面的东西，mvpEnoughConsistentCandidates作为该函数的输出。
+ */
 bool LoopClosing::DetectLoop()
 {
     // 先将要处理的闭环检测队列的关键帧弹出来一个
@@ -148,6 +164,10 @@ bool LoopClosing::DetectLoop()
             minScore = score;
     }
 
+    // END 第一步：计算当前帧mpCurrentKF和每一个与当前帧有共视关键帧们的Bow得分，得到**最小得分minScore**
+    // =========================================================================================
+
+
     // Query the database imposing the minimum score
     // 在最低相似度 minScore 的要求下，获得闭环检测的**候选帧集合**
     // DetectLoopCandidates()忽略和自己已有共视关系的关键帧
@@ -177,57 +197,69 @@ bool LoopClosing::DetectLoop()
      * # 因此， mvConsistentGroups 就好似一个我们的一个小本子，记录着a,b,…,g,h这些地点我们以前连续见过多少次。
      */
     vector<KeyFrame*> vpCandidateKFs = mpKeyFrameDB->DetectLoopCandidates(mpCurrentKF, minScore);   // candidate KeyFrames
+    // END 第二步：根据这个最小得分minScore 从 mpKeyFrameDB（关键帧库）里面找出候选的的集合**vpCandidateKFs**
+    // =========================================================================================
+
 
     // If there are no loop candidates, just add new keyframe and return false
-    if(vpCandidateKFs.empty())
+    if(vpCandidateKFs.empty())          // 没有闭环候选帧
     {
-        mpKeyFrameDB->add(mpCurrentKF);
-        mvConsistentGroups.clear();
+        mpKeyFrameDB->add(mpCurrentKF); // 添加一个新的关键帧 到关键帧数据库
+        mvConsistentGroups.clear();     // 具有连续性的候选帧 群组 清空
         mpCurrentKF->SetErase();
         return false;
     }
+
 
     // For each loop candidate check consistency with previous loop candidates
     // Each candidate expands a covisibility group (keyframes connected to the loop candidate in the covisibility graph)
     // A group is consistent with a previous group if they share at least a keyframe
     // We must detect a consistent loop in several consecutive keyframes to accept it
-    // vpCandidateKFs 中的每个闭环检测的候选帧都会通过共视关键帧，扩展为一个 spCandidateGroup
-    // 对于这vpCandidateKFs.size()个spCandidateGroup进行连续性（consistency）判断
-
-    mvpEnoughConsistentCandidates.clear();
+    // 在候选帧中检测 具有连续性的 候选帧
+	// 1、每个候选帧将与自己相连的关键帧构成一个“子候选组 spCandidateGroup ”， vpCandidateKFs --> spCandidateGroup
+	// 2、检测“ 子候选组 ”中每一个关键帧是否存在于“ 连续组 ”，如果存在 nCurrentConsistency ++，则将该“子候选组”放入“当前连续组 vCurrentConsistentGroups ”
+	// 3、如果 nCurrentConsistency 大于等于3，那么该”子候选组“代表的候选帧过关，进入 mvpEnoughConsistentCandidates
+	  
+    mvpEnoughConsistentCandidates.clear();  // 最终筛选后得到的闭环帧
 
     vector<ConsistentGroup> vCurrentConsistentGroups;
     vector<bool> vbConsistentGroup(mvConsistentGroups.size(),false);
 
     // 遍历vpCandidateKFs，将其中每个关键帧都通过寻找在covisibility graph与自己连接的关键帧，扩展为一个 spCandidateGroup
-    // 也就是遍历每一个spCandidateGroup
+    // 对于这vpCandidateKFs.size()个spCandidateGroup进行连续性（consistency）判断
     // FOR1
-    // 遍历每个的spCandidateGroup
+    // 遍历 每一个 spCandidateGroup
+    // 遍历 每一个 闭环 候选帧
     for(size_t i=0, iend=vpCandidateKFs.size(); i<iend; i++)    // v: std::vector<>
     {
         KeyFrame* pCandidateKF = vpCandidateKFs[i];
 
+        // 将自己以及与自己相连的关键帧构成一个“子候选组”
         // 这个条件是否太宽松?pCandidateKF->GetVectorCovisibleKeyFrames()是否更好一点？
-        set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames();    // s: std::set<>
-        spCandidateGroup.insert(pCandidateKF);  // covisibile graph
+        set<KeyFrame*> spCandidateGroup = pCandidateKF->GetConnectedKeyFrames();    // s: std::set<>, 与自己相连的关键帧
+        spCandidateGroup.insert(pCandidateKF);                                      // covisibile graph, new group, 自己也算进去
 
         bool bEnoughConsistent = false;
-        bool bConsistentForSomeGroup = false;
+        bool bConsistentForSomeGroup = false;   // has no consistent group, the first time appear, set to zero
 
-        // 遍历 mvConsistentGroups ，判断spCandidateGroup与mvConsistentGroups[iG]是否**连续**
-        // current frame's covisibile graph vs covisibile graph of frame of current frame's covisibile graph
 	    // FOR2 
-        // 遍历mvConsistentGroups中的每个的ConsistentGroup为sPreviousGroup
-        // 我们需要判断spCandidateGroup和sPreviousGroup是否有相同的关键帧
+        // 遍历 mvConsistentGroups ，判断spCandidateGroup与mvConsistentGroups[iG]是否**连续**
+        // 遍历 mvConsistentGroups 中的每个的 ConsistentGroup 为 sPreviousGroup
+        // 遍历之前的“子连续组”
+        // 我们需要判断 spCandidateGroup 和 sPreviousGroup 是否有相同的关键帧
+        // mvConsistentGroups[iG]: current frame's covisibile graph vs covisibile graph of frame of current frame's covisibile graph
         for(size_t iG=0, iendG=mvConsistentGroups.size(); iG<iendG; iG++)
         {
-            set<KeyFrame*> sPreviousGroup = mvConsistentGroups[iG].first;
+            // 取出一个之前的 子连续组
+            set<KeyFrame*> sPreviousGroup = mvConsistentGroups[iG].first;           // previous, old group
 
-            // 当前的spCandidateGroup之后要不要插入 vCurrentConsistentGroups
+            // 当前的 spCandidateGroup 之后要不要插入 vCurrentConsistentGroups
+            // 遍历每个“子候选组”，检测候选组中每一个关键帧在“子连续组”中是否存在
+		    // 如果有一帧共同存在于“ 子候选组 ”与之前的“ 子连续组 ”，那么“ 子候选组 ”与该“ 子连续组 ”连续
             bool bConsistent = false;
 
-            // 遍历spCandidateGroup里的关键帧，判断spCandidateGroup与mvConsistentGroups[iG]是否连续，
-	        // 也就是判断spCandidateGroup和mvConsistentGroups[iG]是否有**相同的关键帧**
+            // 遍历spCandidateGroup里的关键帧，判断 spCandidateGroup 与 mvConsistentGroups[iG] 是否连续，
+	        // 也就是判断 spCandidateGrou p和 mvConsistentGroups[iG] 是否有**相同的关键帧**
 	        // FOR3
             // 遍历spCandidateGroup中的关键帧，看是否能在sPreviousGroup中找到
             /**
@@ -255,27 +287,30 @@ bool LoopClosing::DetectLoop()
              */
             for(set<KeyFrame*>::iterator sit=spCandidateGroup.begin(), send=spCandidateGroup.end(); sit!=send;sit++)
             {
+                // 遍历 mvConsistentGroups ，判断 spCandidateGroup 与 sPreviousGroup = mvConsistentGroups[iG] 是否**连续**
                 // 如果在sPreviousGroup里找到sit
-                if(sPreviousGroup.count(*sit))
+                if(sPreviousGroup.count(*sit))  // 有一帧共同存在于“ 子候选组 ”与之前的“ 子连续组 ”
                 {
                     // true表示标记sit所在的spCandidateGroup与sPreviousGroup连续（consistent）
 		            // 之后要插入到 vCurrentConsistentGroups
-                    bConsistent=true;
-                    // true表示有 spCandidateGroup 与 vCurrentConsistentGroups 中的元素存在连续（consistent）
+                    bConsistent=true;   // 那么“ 子候选组 ”与该“ 子连续组 ”连续, spCandidateGroup 与 vCurrentConsistentGroups 中的元素存在连续（consistent）
                     bConsistentForSomeGroup=true;
                     break;
                 }
             }
 
+            // 连续
             if(bConsistent)
             {
-                int nPreviousConsistency = mvConsistentGroups[iG].second;
-                int nCurrentConsistency = nPreviousConsistency + 1;
-                if(!vbConsistentGroup[iG])
+                int nPreviousConsistency = mvConsistentGroups[iG].second;   // 与子候选组 连续的 之前一个子 连续组 序号
+                int nCurrentConsistency = nPreviousConsistency + 1;         // 当前子 连续组 序号
+                if(!vbConsistentGroup[iG])                                  // 子连续组 未连续
                 {
+                    // 2.将该“子候选组”的该关键帧打上编号加入到“当前连续组”
+                    // 子候选帧 对应 连续组序号
                     ConsistentGroup cg = make_pair(spCandidateGroup, nCurrentConsistency);
                     vCurrentConsistentGroups.push_back(cg);
-                    vbConsistentGroup[iG]=true;     // this avoid to include the same group more than once
+                    vbConsistentGroup[iG]=true;     // 设置连续组 连续标志, this avoid to include the same group more than once
                 }
                 if(nCurrentConsistency>=mnCovisibilityConsistencyTh && !bEnoughConsistent)
                 {
@@ -285,7 +320,8 @@ bool LoopClosing::DetectLoop()
             }
         }
 
-        // If the group is not consistent with any previous group insert with consistency counter set to zero
+        // 如果当前关键帧是 vpCandidateKFs 中第一帧的话，直接把这个 spCandidateGroup 整体，以分数0(set to zero)直接放到 mvConsistentGroups 中。
+        // If the group is not consistent with any previous group insert with consistency counter **set to zero**
         if(!bConsistentForSomeGroup)
         {
             ConsistentGroup cg = make_pair(spCandidateGroup,0);
