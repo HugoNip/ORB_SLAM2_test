@@ -1325,6 +1325,10 @@ void Optimizer::OptimizeEssentialGraph(Map* pMap, KeyFrame* pLoopKF, KeyFrame* p
 
 
 /**
+ * @brief
+ * 
+ * 利用重投影误差**构造sim3优化问题(2nd Sim3Solver)**，通过Optimizer::OptimizeSim3()优化，得到**更准确的平移和旋转**
+ * 
  * 闭环检测 时 两帧之间 相对位姿 计算
  * 
  * 具体流程
