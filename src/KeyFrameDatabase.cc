@@ -37,6 +37,16 @@ KeyFrameDatabase::KeyFrameDatabase (const ORBVocabulary &voc):
 }
 
 
+
+/**
+ * @brief 
+ * 根据关键帧的词包，更新数据库的倒排索引
+ * 
+ * 可以看到这个对象的实际作用是，可以通过图像上的特征点找到其他也包含相似特征点的**图像**
+ * 这样进行重定位和回环检测的时候就不用在所有的图像中进行词袋向量的相似度查找了
+ * 
+ * @param pKF 关键帧
+ */
 void KeyFrameDatabase::add(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutex);
@@ -274,14 +284,16 @@ vector<KeyFrame*> KeyFrameDatabase::DetectRelocalizationCandidates(Frame *F)
     {
         unique_lock<mutex> lock(mMutex);
 
+        // words 是检测图像是否匹配的枢纽，遍历该pKF的每一个word 
         for(DBoW2::BowVector::const_iterator vit=F->mBowVec.begin(), vend=F->mBowVec.end(); vit != vend; vit++)
         {
+            // 提取所有包含该word的KeyFrame  
             list<KeyFrame*> &lKFs =   mvInvertedFile[vit->first];
 
             for(list<KeyFrame*>::iterator lit=lKFs.begin(), lend= lKFs.end(); lit!=lend; lit++)
             {
                 KeyFrame* pKFi=*lit;
-                if(pKFi->mnRelocQuery!=F->mnId)
+                if(pKFi->mnRelocQuery!=F->mnId)         // pKFi还没有标记为pKF的候选帧
                 {
                     pKFi->mnRelocWords=0;
                     pKFi->mnRelocQuery=F->mnId;
