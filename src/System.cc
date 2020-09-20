@@ -62,6 +62,11 @@ System::System(const string &strVocFile, const string &strSettingsFile, const eS
     // Load ORB Vocabulary from strVocFile
     cout << endl << "Loading ORB Vocabulary. This could take a while..." << endl;
 
+
+    // 词典的加载
+    // 有一个离线词袋ORBvoc.txt文件（ORB-SLAM2作者提供了一个他们训练好的词典），一般这个称之为**词典**，
+    // 为了快速查询，以空间换时间建立了一个d层的K叉树来保存词典，树的**叶子节点**包含了每个**单词**及在词典里的**权重**
+    // 在System对象的初始化中词典
     mpVocabulary = new ORBVocabulary();
     bool bVocLoad = mpVocabulary->loadFromTextFile(strVocFile);
     if(!bVocLoad)

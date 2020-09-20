@@ -210,6 +210,8 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
 
     // We perform the matching over ORB that belong to the same vocabulary node (at a certain level)
     /**
+     * 利用FeatureVector加速匹配
+     * 
      * Vector of nodes with indexes of local features
      * class FeatureVector: public std::map<NodeId, std::vector<unsigned int>>
      */
@@ -219,22 +221,22 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
     DBoW2::FeatureVector::const_iterator Fend = F.mFeatVec.end();       // F
 
     // KF
-    // 遍历 vFeatVecKF 的每个结点
+    // 遍历 vFeatVecKF 的每个 Node
     while(KFit != KFend && Fit != Fend)
     {
-        // 步骤1：分别取出属于同一node的ORB特征点(只有属于同一node，才有可能是匹配点)
-        if(KFit->first == Fit->first)                                   // NodeId
+        // 步骤1：分别取出属于同一Node的ORB特征点(只有属于同一node，才有可能是匹配点)
+        if(KFit->first == Fit->first)                                   // same NodeId
         {
-            // Indices of ORB features
+            // Indices of keypoints in the Node
             const vector<unsigned int> vIndicesKF = KFit->second;       // std::vector<unsigned int>
             const vector<unsigned int> vIndicesF = Fit->second;
 
             // 遍历pKF中**属于该node**的特征点
             for(size_t iKF=0; iKF<vIndicesKF.size(); iKF++)
             {
-                const unsigned int realIdxKF = vIndicesKF[iKF];         // idx of keynode
+                const unsigned int realIdxKF = vIndicesKF[iKF];         // idx of each keypoint
 
-                MapPoint* pMP = vpMapPointsKF[realIdxKF];               // 获得此特征点对应的mappoint
+                MapPoint* pMP = vpMapPointsKF[realIdxKF];               // 获得此特征点对应的 MapPoint
 
                 if(!pMP)            // 如果此特征点没有对应mappoint
                     continue;
@@ -242,24 +244,25 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
                 if(pMP->isBad())    // 如果此特征点对应的mappoint是坏的
                     continue;
 
-                const cv::Mat &dKF= pKF->mDescriptors.row(realIdxKF);   //获得此特征点对应的描述子
+                const cv::Mat &dKF= pKF->mDescriptors.row(realIdxKF);   // Descriptor for KP of KF
 
                 int bestDist1=256;
                 int bestIdxF =-1 ;
                 int bestDist2=256;
 
+                // look for the matching Descriptor in F
+                // for each keypoint in the F under NodeID
                 // 遍历F中属于该node的特征点，找到最佳匹配点
                 for(size_t iF=0; iF<vIndicesF.size(); iF++)
                 {
                     const unsigned int realIdxF = vIndicesF[iF];
 
-                    // 表明这个点已经被匹配过了，不再匹配，加快速度
-                    if(vpMapPointMatches[realIdxF])                     // idx is marked based on F
+                    if(vpMapPointMatches[realIdxF])                     // 表明这个点已经被匹配过了，不再匹配，加快速度
                         continue;
 
-                    const cv::Mat &dF = F.mDescriptors.row(realIdxF);
+                    const cv::Mat &dF = F.mDescriptors.row(realIdxF);   // Descriptor for KP of F
 
-                    const int dist =  DescriptorDistance(dKF,dF);
+                    const int dist =  DescriptorDistance(dKF,dF);       // distance
 
                     // 更新bestDist1 bestDist2
 		            // bestDist1表示最佳匹配，bestDist2表示次佳匹配
@@ -275,18 +278,18 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
                     }
                 }
 
-                // 如果最佳匹配达到阈值,也就是距离阈值剔除
+                // 如果最佳匹配达到阈值,也就是**距离阈值剔除**
                 if(bestDist1<=TH_LOW)
                 {   
-                    // 如果最佳匹配和次佳匹配**差距较大**，那么就剔除这个匹配。也就是比例剔除
+                    // 如果最佳匹配和次佳匹配**差距较大**，那么就剔除这个匹配，也就是比例剔除
                     if(static_cast<float>(bestDist1) < mfNNratio*static_cast<float>(bestDist2))
                     {
-                        vpMapPointMatches[bestIdxF]=pMP;
+                        vpMapPointMatches[bestIdxF]=pMP;                    // add element into vpMapPointMatches
 
-                        const cv::KeyPoint &kp = pKF->mvKeysUn[realIdxKF];
+                        const cv::KeyPoint &kp = pKF->mvKeysUn[realIdxKF];  // KeyPoint in KF
 
                         // 如果开启了角度剔除
-                        if(mbCheckOrientation)
+                        if(mbCheckOrientation)                              // mbCheckOrientation Type: bool
                         {
                             float rot = kp.angle-F.mvKeys[bestIdxF].angle;
                             if(rot<0.0)
@@ -343,6 +346,7 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
 
     return nmatches;
 }
+
 
 int ORBmatcher::SearchByProjection(KeyFrame* pKF, cv::Mat Scw, const vector<MapPoint*> &vpPoints, vector<MapPoint*> &vpMatched, int th)
 {
@@ -459,10 +463,12 @@ int ORBmatcher::SearchByProjection(KeyFrame* pKF, cv::Mat Scw, const vector<MapP
     return nmatches;
 }
 
+
 /**
  * Matching for the Map Initialization (only used in the monocular case)
  * 
- * 搜索F1和F2之间的匹配点放在vnMatches12。如果mbCheckOrientation，则将F1中匹配成功的特征点按照其角度分类在rotHist中
+ * 搜索F1和F2之间的匹配点放在vnMatches12。
+ * 如果mbCheckOrientation，则将F1中匹配成功的特征点按照其角度分类在rotHist中
  * 计算出rotHist，vnMatches12
  * @param F1                参考帧
  * @param F2                当前帧
@@ -474,74 +480,100 @@ int ORBmatcher::SearchByProjection(KeyFrame* pKF, cv::Mat Scw, const vector<MapP
 int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f> &vbPrevMatched, vector<int> &vnMatches12, int windowSize)
 {
     int nmatches=0;
-    vnMatches12 = vector<int>(F1.mvKeysUn.size(),-1);
+    // 储存F1中匹配成功的点在**F2中的序号**
+    vnMatches12 = vector<int>(F1.mvKeysUn.size(),-1);               // -1: unmatched, >0: idx of KeyPoint in F2
 
+    // 如果mbCheckOrientation为真，之后匹配点匹配按照**匹配点的角度差**划分到rotHist(Histogram)
+    // rotHist是类型为vector<int>，大小为HISTO_LENGTH的数组
+    // 假设HISTO_LENGTH=8，那么rotHist存放着匹配点角度差为0~45,45~90...,315~360度的F1特征点序号
     vector<int> rotHist[HISTO_LENGTH];
     for(int i=0;i<HISTO_LENGTH;i++)
         rotHist[i].reserve(500);
     const float factor = 1.0f/HISTO_LENGTH;
 
-    vector<int> vMatchedDistance(F2.mvKeysUn.size(),INT_MAX);
-    vector<int> vnMatches21(F2.mvKeysUn.size(),-1);
+    // 储存匹配成功的特征点的描述子之间的**距离**
+    vector<int> vMatchedDistance(F2.mvKeysUn.size(),INT_MAX);       // distance
+    // 储存F2中匹配成功的点在**F1中的序号**
+    vector<int> vnMatches21(F2.mvKeysUn.size(),-1);                 // idx of KeyPoint in the F1
 
+    // 遍历F1中畸变纠正后的特征点
     for(size_t i1=0, iend1=F1.mvKeysUn.size(); i1<iend1; i1++)
     {
-        cv::KeyPoint kp1 = F1.mvKeysUn[i1];
+        cv::KeyPoint kp1 = F1.mvKeysUn[i1];                         // KeyPoint
         int level1 = kp1.octave;
-        if(level1>0)
+        if(level1>0)                                                // 只处理第0层的特征点
             continue;
 
+        /**
+         * vbPrevMatched    F1中待匹配的特征点
+         * 搜索F2中，以 vbPrevMatched[i1] 为中心，边长为2*windowSize的方形内，尺度为level1的特征点
+         * 注意返回的特征点集合 vIndices2 是F2中**特征点序号集合**
+         * 这些F2中的特征点是最有可能和F1中il匹配上的
+         */
         vector<size_t> vIndices2 = F2.GetFeaturesInArea(vbPrevMatched[i1].x,vbPrevMatched[i1].y, windowSize,level1,level1);
 
         if(vIndices2.empty())
             continue;
 
-        cv::Mat d1 = F1.mDescriptors.row(i1);
+        cv::Mat d1 = F1.mDescriptors.row(i1);       // Descriptor in the F1
 
-        int bestDist = INT_MAX;
-        int bestDist2 = INT_MAX;
-        int bestIdx2 = -1;
+        int bestDist = INT_MAX;                     // 初始化描述子间最小距离
+        int bestDist2 = INT_MAX;                    // 初始化描述子间次小距离
+        int bestIdx2 = -1;                          // 描述子间最小距离对应在**F2中特征点序号**
 
+        // 遍历vIndices2
+	    // 在vIndices2中找出和i1距离最小的点，也就是最匹配的点，并更新bestDist，bestDist2
         for(vector<size_t>::iterator vit=vIndices2.begin(); vit!=vIndices2.end(); vit++)
         {
             size_t i2 = *vit;
 
-            cv::Mat d2 = F2.mDescriptors.row(i2);
+            cv::Mat d2 = F2.mDescriptors.row(i2);   // Descriptor in the F2
 
-            int dist = DescriptorDistance(d1,d2);
+            int dist = DescriptorDistance(d1,d2);   // distance
 
-            if(vMatchedDistance[i2]<=dist)
+            if(vMatchedDistance[i2]<=dist)          // updating failed
                 continue;
 
-            if(dist<bestDist)
+            if(dist<bestDist)                       // update bestDist，bestDist2
             {
-                bestDist2=bestDist;
-                bestDist=dist;
-                bestIdx2=i2;
+                bestDist2=bestDist;                 // update second best
+                bestDist=dist;                      // update best
+                bestIdx2=i2;                        // update second best idx
             }
-            else if(dist<bestDist2)
+            else if(dist<bestDist2)                 // existed best is still best, need to update second best
             {
                 bestDist2=dist;
             }
         }
 
+        /**
+         * 描述子距离小于等于TH_LOW才考虑匹配
+         * 其实这里的意思是，F1与F2之间匹配点的**角度差应该差不多是一致的**
+         */
         if(bestDist<=TH_LOW)
-        {
-            if(bestDist<(float)bestDist2*mfNNratio)
+        {   
+            // 如果最小距离bestDist，与次小距离相距足够远（用mfNNratio描述其阈值），则匹配成功，否则放弃
+            if(bestDist<(float)bestDist2*mfNNratio)             // outstanding, extraordinary, remarkable
             {
-                if(vnMatches21[bestIdx2]>=0)
+                // 其他的F1中的特征点已经和bestIdx2匹配上了，形成冲突，于是删除之前的匹配，然后代替它
+                if(vnMatches21[bestIdx2]>=0)                    // 储存F2中匹配成功的点在**F1中的序号**
                 {
-                    vnMatches12[vnMatches21[bestIdx2]]=-1;
+                    vnMatches12[vnMatches21[bestIdx2]]=-1;      // 储存F1中匹配成功的点在**F2中的序号**
                     nmatches--;
                 }
-                vnMatches12[i1]=bestIdx2;
+                vnMatches12[i1]=bestIdx2;                       
                 vnMatches21[bestIdx2]=i1;
-                vMatchedDistance[bestIdx2]=bestDist;
+                vMatchedDistance[bestIdx2]=bestDist;            // idx is based on F2
                 nmatches++;
 
+                /*
+                 * 将匹配点，按照匹配点间的角度差来分成HISTO_LENGTH类，放在rotHist
+                 * 然后剔除那些角度差和其他大多数匹配点角度差差异较大的点
+                 * 将i1按照匹配点角度差范围划分到rotHist中
+                 */
                 if(mbCheckOrientation)
                 {
-                    float rot = F1.mvKeysUn[i1].angle-F2.mvKeysUn[bestIdx2].angle;
+                    float rot = F1.mvKeysUn[i1].angle-F2.mvKeysUn[bestIdx2].angle;  // 计算匹配点的角度差
                     if(rot<0.0)
                         rot+=360.0f;
                     int bin = round(rot*factor);
@@ -555,12 +587,14 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
 
     }
 
+    // 先找出前3多的角度差范围，然后剔除那些不在这些角度差范围的匹配点
     if(mbCheckOrientation)
     {
         int ind1=-1;
         int ind2=-1;
         int ind3=-1;
 
+        // 找出数组rotHist中，数量最多的前三位
         ComputeThreeMaxima(rotHist,HISTO_LENGTH,ind1,ind2,ind3);
 
         for(int i=0; i<HISTO_LENGTH; i++)
@@ -580,13 +614,14 @@ int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f
 
     }
 
-    //Update prev matched
+    // Update prev matched (in F1)
     for(size_t i1=0, iend1=vnMatches12.size(); i1<iend1; i1++)
         if(vnMatches12[i1]>=0)
             vbPrevMatched[i1]=F2.mvKeysUn[vnMatches12[i1]].pt;
 
     return nmatches;
 }
+
 
 int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &vpMatches12)
 {
@@ -724,8 +759,12 @@ int ORBmatcher::SearchByBoW(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint *> &
 }
 
 
-// 匹配pKF1与pKF2之间的未被匹配的特征点并通过bow加速，并校验是否符合**对级约束**
-// vMatchedPairs匹配成功的特征点在各自关键帧中的id
+/**
+ * @brief
+ * 
+ * 匹配pKF1与pKF2之间的未被匹配的特征点并通过bow加速，并校验是否符合**对级约束**
+ * vMatchedPairs 匹配成功的特征点在各自关键帧中的id
+ */
 int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F12,
                                        vector<pair<size_t, size_t> > &vMatchedPairs, const bool bOnlyStereo)
 {

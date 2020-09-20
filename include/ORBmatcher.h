@@ -129,7 +129,10 @@ public:
 
 
     // Matching to triangulate new MapPoints. Check Epipolar Constraint.
-    // 匹配pKF1与pKF2之间的未被匹配的特征点并通过bow加速，并校验是否符合对级约束。vMatchedPairs匹配成功的特征点在各自关键帧中的id。
+    /**
+     * 匹配pKF1与pKF2之间的未被匹配的特征点并通过bow加速，并校验是否符合对级约束
+     * vMatchedPairs匹配成功的特征点在各自关键帧中的id
+     */
     int SearchForTriangulation(KeyFrame *pKF1, KeyFrame* pKF2, cv::Mat F12,
                                 std::vector<pair<size_t, size_t> > &vMatchedPairs, const bool bOnlyStereo);
 

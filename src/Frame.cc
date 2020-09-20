@@ -500,13 +500,19 @@ bool Frame::PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY)
 
 
 /**
+ * @brief Bag of Words Representation
+ *
+ * 计算词包mBowVec和mFeatVec，其中mFeatVec记录了属于第i个node（在第4层）的ni个描述子
+ * 
  * 如果没有传入已有的词袋数据，则就用当前的描述子重新计算生成词袋数据
+ * 
+ * @see CreateInitialMapMonocular() TrackReferenceKeyFrame() Relocalization()
  */
 void Frame::ComputeBoW()
 {
     if(mBowVec.empty())
     {
-        vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors); // 当前的描述子
+        vector<cv::Mat> vCurrentDesc = Converter::toDescriptorVector(mDescriptors);     // 当前的描述子
         mpORBvocabulary->transform(vCurrentDesc,mBowVec,mFeatVec,4);
     }
 }
