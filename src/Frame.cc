@@ -402,6 +402,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     return true;
 }
 
+
 vector<size_t> Frame::GetFeaturesInArea(
     const float &x, 
     const float &y, 
