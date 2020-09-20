@@ -219,10 +219,11 @@ public:
     // mBowVec本质是一个map<WordId, WordValue>
     // 对于某幅图像A，它的特征点可以对应多个单词，组成它的bow
     DBoW2::BowVector mBowVec;
+
     // mFeatVec是一个std::map<NodeId, std::vector<unsigned int>>
-    // 将此帧的特征点分配到mpORBVocabulary树各个结点，从而得到mFeatVec
-    // mFeatVec->first代表结点ID
-    // mFeatVec->second代表在mFeatVec->first结点的特征点序号的vector集合
+    // 将此帧的特征点分配到 mpORBVocabulary 树各个结点，从而得到 mFeatVec
+    // mFeatVec->first      代表结点ID
+    // mFeatVec->second     代表在mFeatVec->first结点的特征点序号的vector集合
     DBoW2::FeatureVector mFeatVec;
 
     // Pose relative to parent (this is computed when bad flag is activated)

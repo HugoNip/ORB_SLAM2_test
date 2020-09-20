@@ -183,7 +183,7 @@ bool ORBmatcher::CheckDistEpipolarLine(const cv::KeyPoint &kp1,const cv::KeyPoin
 
 
 /**
- * 针对pKF中有对应mappoint的那些特征点，和F中的特征点进行匹配
+ * 针对pKF中有对应mappoint的那些**特征点**，和F中的特征点进行**匹配**
  * 利用dbow进行匹配加速
  * 通过距离阈值、比例阈值和角度投票进行剔除误匹配
  * 
@@ -195,11 +195,11 @@ bool ORBmatcher::CheckDistEpipolarLine(const cv::KeyPoint &kp1,const cv::KeyPoin
 int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPointMatches)
 {
     // MapPoints for pKF
-    const vector<MapPoint*> vpMapPointsKF = pKF->GetMapPointMatches();
+    const vector<MapPoint*> vpMapPointsKF = pKF->GetMapPointMatches();          // KF
 
-    vpMapPointMatches = vector<MapPoint*>(F.N,static_cast<MapPoint*>(NULL));
+    vpMapPointMatches = vector<MapPoint*>(F.N,static_cast<MapPoint*>(NULL));    // F
 
-    const DBoW2::FeatureVector &vFeatVecKF = pKF->mFeatVec;
+    const DBoW2::FeatureVector &vFeatVecKF = pKF->mFeatVec;                     // KF
 
     int nmatches=0;
 
@@ -209,47 +209,60 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
     const float factor = 1.0f/HISTO_LENGTH;
 
     // We perform the matching over ORB that belong to the same vocabulary node (at a certain level)
-    DBoW2::FeatureVector::const_iterator KFit = vFeatVecKF.begin();
-    DBoW2::FeatureVector::const_iterator Fit = F.mFeatVec.begin();
-    DBoW2::FeatureVector::const_iterator KFend = vFeatVecKF.end();
-    DBoW2::FeatureVector::const_iterator Fend = F.mFeatVec.end();
+    /**
+     * Vector of nodes with indexes of local features
+     * class FeatureVector: public std::map<NodeId, std::vector<unsigned int>>
+     */
+    DBoW2::FeatureVector::const_iterator KFit = vFeatVecKF.begin();     // KF
+    DBoW2::FeatureVector::const_iterator Fit = F.mFeatVec.begin();      // F
+    DBoW2::FeatureVector::const_iterator KFend = vFeatVecKF.end();      // KF
+    DBoW2::FeatureVector::const_iterator Fend = F.mFeatVec.end();       // F
 
+    // KF
+    // 遍历 vFeatVecKF 的每个结点
     while(KFit != KFend && Fit != Fend)
     {
-        if(KFit->first == Fit->first)
+        // 步骤1：分别取出属于同一node的ORB特征点(只有属于同一node，才有可能是匹配点)
+        if(KFit->first == Fit->first)                                   // NodeId
         {
-            const vector<unsigned int> vIndicesKF = KFit->second;
+            // Indices of ORB features
+            const vector<unsigned int> vIndicesKF = KFit->second;       // std::vector<unsigned int>
             const vector<unsigned int> vIndicesF = Fit->second;
 
+            // 遍历pKF中**属于该node**的特征点
             for(size_t iKF=0; iKF<vIndicesKF.size(); iKF++)
             {
-                const unsigned int realIdxKF = vIndicesKF[iKF];
+                const unsigned int realIdxKF = vIndicesKF[iKF];         // idx of keynode
 
-                MapPoint* pMP = vpMapPointsKF[realIdxKF];
+                MapPoint* pMP = vpMapPointsKF[realIdxKF];               // 获得此特征点对应的mappoint
 
-                if(!pMP)
+                if(!pMP)            // 如果此特征点没有对应mappoint
                     continue;
 
-                if(pMP->isBad())
+                if(pMP->isBad())    // 如果此特征点对应的mappoint是坏的
                     continue;
 
-                const cv::Mat &dKF= pKF->mDescriptors.row(realIdxKF);
+                const cv::Mat &dKF= pKF->mDescriptors.row(realIdxKF);   //获得此特征点对应的描述子
 
                 int bestDist1=256;
                 int bestIdxF =-1 ;
                 int bestDist2=256;
 
+                // 遍历F中属于该node的特征点，找到最佳匹配点
                 for(size_t iF=0; iF<vIndicesF.size(); iF++)
                 {
                     const unsigned int realIdxF = vIndicesF[iF];
 
-                    if(vpMapPointMatches[realIdxF])
+                    // 表明这个点已经被匹配过了，不再匹配，加快速度
+                    if(vpMapPointMatches[realIdxF])                     // idx is marked based on F
                         continue;
 
                     const cv::Mat &dF = F.mDescriptors.row(realIdxF);
 
                     const int dist =  DescriptorDistance(dKF,dF);
 
+                    // 更新bestDist1 bestDist2
+		            // bestDist1表示最佳匹配，bestDist2表示次佳匹配
                     if(dist<bestDist1)
                     {
                         bestDist2=bestDist1;
@@ -262,14 +275,17 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
                     }
                 }
 
+                // 如果最佳匹配达到阈值,也就是距离阈值剔除
                 if(bestDist1<=TH_LOW)
-                {
-                    if(static_cast<float>(bestDist1)<mfNNratio*static_cast<float>(bestDist2))
+                {   
+                    // 如果最佳匹配和次佳匹配**差距较大**，那么就剔除这个匹配。也就是比例剔除
+                    if(static_cast<float>(bestDist1) < mfNNratio*static_cast<float>(bestDist2))
                     {
                         vpMapPointMatches[bestIdxF]=pMP;
 
                         const cv::KeyPoint &kp = pKF->mvKeysUn[realIdxKF];
 
+                        // 如果开启了角度剔除
                         if(mbCheckOrientation)
                         {
                             float rot = kp.angle-F.mvKeys[bestIdxF].angle;
@@ -302,17 +318,21 @@ int ORBmatcher::SearchByBoW(KeyFrame* pKF,Frame &F, vector<MapPoint*> &vpMapPoin
 
 
     if(mbCheckOrientation)
-    {
+    {   
+        // ind1，ind2，ind3表示主要的旋转方向
         int ind1=-1;
         int ind2=-1;
         int ind3=-1;
 
+        // 计算ind1，ind2，ind3
         ComputeThreeMaxima(rotHist,HISTO_LENGTH,ind1,ind2,ind3);
 
         for(int i=0; i<HISTO_LENGTH; i++)
         {
             if(i==ind1 || i==ind2 || i==ind3)
                 continue;
+            
+            // 对于不在ind1，ind2，ind3方向上的匹配，进行剔除
             for(size_t j=0, jend=rotHist[i].size(); j<jend; j++)
             {
                 vpMapPointMatches[rotHist[i][j]]=static_cast<MapPoint*>(NULL);
