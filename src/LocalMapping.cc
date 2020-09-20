@@ -361,7 +361,9 @@ void LocalMapping::CreateNewMapPoints()
         // Search matches that fullfil epipolar constraint
         // 通过极线约束限制匹配时的搜索范围，进行特征点匹配
         vector<pair<size_t,size_t> > vMatchedIndices;
-	    // 匹配pKF1与pKF2之间未被匹配的特征点并通过bow加速，并校验是否符合对级约束。vMatchedPairs匹配成功的特征点在各自关键帧中的id
+        
+	    // 匹配pKF1与pKF2之间**未被匹配的特征点**并通过bow加速，并校验是否符合对级约束
+        // vMatchedPairs匹配成功的特征点在各自关键帧中的id
         // So they try their best to search matches as many as possible to make SLAM robust
         // and construct accurate matching relationship, culling bad matches
         // btw, loop closing detection is one of the method to make SLAM robust
