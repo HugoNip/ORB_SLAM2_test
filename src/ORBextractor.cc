@@ -765,6 +765,7 @@ vector<cv::KeyPoint> ORBextractor::DistributeOctTree(const vector<cv::KeyPoint>&
                 // If more than one point, subdivide
                 // 如果此节点关键点数量大于1，那么就分裂此节
                 // 将此节点中的关键点通过 DivideNode 分配到n1,n2,n3,n4, 并且将此被分裂的节点删除
+                // https://blog.csdn.net/weixin_38636815/article/details/81981305
                 /**
                  * ni: storge position
                  *  ni.UL
