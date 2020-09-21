@@ -91,12 +91,17 @@ public:
         return mRwc.clone();
     }
 
+
     // Check if a MapPoint is in the frustum of the camera
     // and fill variables of the MapPoint to be used by the tracking
+    // pMP是否在当前帧视野范围内
     bool isInFrustum(MapPoint* pMP, float viewingCosLimit);
 
+
     // Compute the cell of a keypoint (return false if outside the grid)
+    // 计算kp在哪一个窗格，如果超出边界则返回false
     bool PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY);
+
 
     /**
      * function() const {}
@@ -115,12 +120,22 @@ public:
      * const objects.const functions
      * 
      * https://www.geeksforgeeks.org/const-member-functions-c/
+     * 
+     * 
+     * 找到在 以x, y为中心,边长为2r的方形搜索框内且在[minLevel, maxLevel]的特征点
+     * @param x        图像坐标u
+     * @param y        图像坐标v
+     * @param r        边长
+     * @param minLevel 最小尺度
+     * @param maxLevel 最大尺度
+     * @return         满足条件的特征点的序号
      */
     vector<size_t> GetFeaturesInArea(const float &x, 
                                      const float &y, 
                                      const float &r, 
                                      const int minLevel=-1, 
                                      const int maxLevel=-1) const;
+
 
     // Search a match for each keypoint in the left image to a keypoint in the right image.
     // If there is a match, depth is computed and the right coordinate associated to the 
@@ -166,49 +181,77 @@ public:
     // Number of KeyPoints.
     int N;
 
-    // Vector of keypoints (original for visualization) and undistorted 
-    // (actually used by the system).
+
+    // Vector of keypoints (original for visualization) and undistorted (actually used by the system).
     // In the stereo case, mvKeysUn is redundant as images must be rectified.
     // In the RGB-D case, RGB images can be distorted.
-    std::vector<cv::KeyPoint> mvKeys, mvKeysRight;
-    std::vector<cv::KeyPoint> mvKeysUn;
+    std::vector<cv::KeyPoint> mvKeys, mvKeysRight;      // 畸变的orb关键点
+    std::vector<cv::KeyPoint> mvKeysUn;                 // 纠正后的关键点
+
 
     // Corresponding stereo coordinate and depth for each keypoint.
     // "Monocular" keypoints have a negative value.
     std::vector<float> mvuRight;
     std::vector<float> mvDepth;
 
+
     // Bag of Words Vector structures.
+    /**
+     * mBowVec本质是一个map<WordId, WordValue>
+     * 对于某幅图像A，它的特征点可以对应多个单词，组成它的bow
+     * Value of a word
+     * typedef double WordValue;
+     */
     DBoW2::BowVector mBowVec;
+
+
+    /**
+     * Vector of nodes with indexes of local features
+     * class FeatureVector: public std::map<NodeId, std::vector<unsigned int>>
+     * 
+     * 将此帧的特征点分配到mpORBVocabulary树各个结点，从而得到mFeatVec
+     * mFeatVec->first代表结点ID
+     * mFeatVec->second代表在mFeatVec->first结点的特征点序号的vector集合
+     */
     DBoW2::FeatureVector mFeatVec;
+
 
     // ORB descriptor, each row associated to a keypoint.
     cv::Mat mDescriptors, mDescriptorsRight;
 
+
     // MapPoints associated to keypoints, NULL pointer if no association.
+    // 大小是 mvKeys(KeyPoints) 大小，表示mappoint和此帧特征点的联系。如果没有联系则为NULL
     std::vector<MapPoint*> mvpMapPoints;
 
+
     // Flag to identify outlier associations.
+    // 描述比如经过位姿优化后，有哪些特征点是可以匹配上mappoint的，
+    // 一般情况下他和mvpMapPoints描述的情况相同
+    // 它比mvpMapPoints时效性更强
     std::vector<bool> mvbOutlier;
+
 
     // Keypoints are assigned to cells in a grid to reduce matching complexity 
     // when projecting MapPoints.
-    static float mfGridElementWidthInv;
-    static float mfGridElementHeightInv;
-    std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];
+    static float mfGridElementWidthInv;     // x轴窗格宽倒数
+    static float mfGridElementHeightInv;    // y轴窗格高倒数
+    std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];   // 储存这各个窗格的特征点在mvKeysUn中的**序号**
 
     // Camera pose.
     cv::Mat mTcw;
 
     // Current and Next Frame id.
-    static long unsigned int nNextId;
-    long unsigned int mnId;
+    static long unsigned int nNextId;       // 静态变量，下一个Frame对象id
+    long unsigned int mnId;                 // 当前Frame对象id
 
     // Reference Keyframe.
+    // 参考关键帧，有共视的mappoint关键帧共视程度最高（共视的mappoint数量最多）的关键帧
     KeyFrame* mpReferenceKF;
 
     // Scale pyramid info.
-    int mnScaleLevels;
+    // 从orbextractor拷贝的关于高斯金字塔的信息
+    int mnScaleLevels;                  // 高斯金字塔层数
     float mfScaleFactor;
     float mfLogScaleFactor;
     vector<float> mvScaleFactors;
@@ -230,7 +273,7 @@ private:
     // Undistort keypoints given OpenCV distortion parameters.
     // Only for the RGB-D case. Stereo must be already rectified!
     // (called in the constructor).
-    void UndistortKeyPoints();
+    void UndistortKeyPoints();      // 关键点畸变矫正
 
     // Computes image bounds for the undistorted image (called in the constructor).
     void ComputeImageBounds(const cv::Mat &imLeft);
@@ -242,6 +285,7 @@ private:
     cv::Mat mRcw; // Rotation from world to camera
     cv::Mat mtcw; // translation from world to camera
     cv::Mat mRwc; // Rotation from camera to world
+    // 光心在世界坐标系中位姿
     cv::Mat mOw; //==mtwc, translation from camera to world
 };
 

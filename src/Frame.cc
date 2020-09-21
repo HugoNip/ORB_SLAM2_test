@@ -330,6 +330,7 @@ void Frame::UpdatePoseMatrices()
     mOw = -mRcw.t()*mtcw; // camera center
 }
 
+
 bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 {
     /**
@@ -349,46 +350,43 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     const float &PcY= Pc.at<float>(1);
     const float &PcZ = Pc.at<float>(2);
 
-    // Check positive depth
+    // Check **positive depth**
     if(PcZ<0.0f)
-        return false;
+        return false;   // 如果z值为负，舍弃
 
     // Project in image (u, v) and check it is not outside
     const float invz = 1.0f/PcZ;
     const float u=fx*PcX*invz+cx;
     const float v=fy*PcY*invz+cy;
 
-    // Check whether or not (u, v) is in the image
+    // Check whether or not (u, v) is **in the image**
     if(u<mnMinX || u>mnMaxX)
         return false;
     if(v<mnMinY || v>mnMaxY)
         return false;
 
     // Check distance is in the scale invariance region of the MapPoint
-    // 计算MapPoint到相机中心的距离, 并判断是否在尺度变化的距离内
+    // 计算MapPoint到相机中心的**距离**, 并判断是否在尺度变化的距离内
     // 每一个地图点都是对应于若干尺度的金字塔提取出来的，具有一定的有效深度
     const float maxDistance = pMP->GetMaxDistanceInvariance();
     const float minDistance = pMP->GetMinDistanceInvariance();
-    // 世界坐标系下，相机到3D点P的向量, 向量方向由相机指向3D点P
-    const cv::Mat PO = P-mOw; // vector from camera center to mappoint
-    const float dist = cv::norm(PO); // absolute L2 norm
 
-    if(dist<minDistance || dist>maxDistance)
+    // 世界坐标系下，相机到3D点P的向量, 向量方向由相机指向3D点P
+    const cv::Mat PO = P-mOw;           // vector from camera center to mappoint
+    const float dist = cv::norm(PO);    // absolute L2 norm
+
+    if(dist<minDistance || dist>maxDistance)    // check **distance**
         return false;
 
-    // Check viewing angle
-    // 计算当前视角和平均视角夹角的余弦值, 若小于cos(60), 即夹角大于60度则返回
-    // 每一个地图都有其平均视角，是从能够观测到地图点的帧位姿中计算出
-    cv::Mat Pn = pMP->GetNormal(); // normal vector
-
-    const float viewCos = PO.dot(Pn)/dist;
+    // Check **viewing angle**
+    cv::Mat Pn = pMP->GetNormal();              // normal vector, 每一个地图都有其平均视角，是从能够观测到地图点的帧位姿中计算出
+    const float viewCos = PO.dot(Pn)/dist;      // 计算当前视角和平均视角夹角的余弦值, 若小于cos(60), 即夹角大于60度则返回
 
     if(viewCos<viewingCosLimit)
-        return false;
+        return false;                           // 余弦值小于cos(60), 即夹角大于60度则返回false
 
     // Predict scale in the image
-    // 根据深度预测尺度（对应特征点在一层）
-    const int nPredictedLevel = pMP->PredictScale(dist,this);
+    const int nPredictedLevel = pMP->PredictScale(dist,this);   // 根据深度预测尺度（对应特征点在一层）
 
     // Data used by the tracking
     // if mappoint is in the view, this mappoint will be used by tracking
@@ -402,7 +400,15 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     return true;
 }
 
-
+/**
+ * 找到在 以x, y为中心,边长为2r的方形搜索框内且在[minLevel, maxLevel]的特征点
+ * @param x         图像坐标u
+ * @param y         图像坐标v
+ * @param r         边长
+ * @param minLevel  最小尺度
+ * @param maxLevel  最大尺度
+ * @return          满足条件的特征点的**序号**
+ */
 vector<size_t> Frame::GetFeaturesInArea(
     const float &x, 
     const float &y, 
@@ -432,8 +438,7 @@ vector<size_t> Frame::GetFeaturesInArea(
     if(nMinCellX>=FRAME_GRID_COLS)
         return vIndices;
 
-    const int nMaxCellX = min((int)FRAME_GRID_COLS-1,
-                              (int)ceil((x-mnMinX+r)*mfGridElementWidthInv));
+    const int nMaxCellX = min((int)FRAME_GRID_COLS-1, (int)ceil((x-mnMinX+r)*mfGridElementWidthInv));
     if(nMaxCellX<0)
         return vIndices;
 
@@ -441,8 +446,7 @@ vector<size_t> Frame::GetFeaturesInArea(
     if(nMinCellY>=FRAME_GRID_ROWS)
         return vIndices;
 
-    const int nMaxCellY = min((int)FRAME_GRID_ROWS-1,
-                              (int)ceil((y-mnMinY+r)*mfGridElementHeightInv));
+    const int nMaxCellY = min((int)FRAME_GRID_ROWS-1, (int)ceil((y-mnMinY+r)*mfGridElementHeightInv));
     if(nMaxCellY<0)
         return vIndices;
 
@@ -453,8 +457,11 @@ vector<size_t> Frame::GetFeaturesInArea(
     {
         for(int iy = nMinCellY; iy<=nMaxCellY; iy++)
         {
-            // Keypoints are assigned to cells in a grid to reduce matching complexity 
-            // when projecting MapPoints.
+            // Keypoints are assigned to cells in a grid to reduce matching complexity when projecting MapPoints.
+            /**
+             * std::vector<std::size_t> mGrid[FRAME_GRID_COLS][FRAME_GRID_ROWS];   
+             * 储存这各个窗格的特征点在mvKeysUn中的**序号**
+             */
             const vector<size_t> vCell = mGrid[ix][iy]; // cell in a grid
             if(vCell.empty())
                 continue;
@@ -473,6 +480,7 @@ vector<size_t> Frame::GetFeaturesInArea(
                             continue;
                 }
 
+                // 确认此特征点在方形内
                 const float distx = kpUn.pt.x-x;
                 const float disty = kpUn.pt.y-y;
 
@@ -486,12 +494,16 @@ vector<size_t> Frame::GetFeaturesInArea(
     return vIndices;
 }
 
+
+/**
+ * 计算kp在哪一个窗格，如果超出边界则返回false
+ */
 bool Frame::PosInGrid(const cv::KeyPoint &kp, int &posX, int &posY)
 {
     posX = round((kp.pt.x-mnMinX)*mfGridElementWidthInv);
     posY = round((kp.pt.y-mnMinY)*mfGridElementHeightInv);
 
-    //Keypoint's coordinates are undistorted, which could cause to go out of the image
+    // !!!Keypoint's coordinates are **undistorted**, which could cause to go out of the image
     if(posX<0 || posX>=FRAME_GRID_COLS || posY<0 || posY>=FRAME_GRID_ROWS)
         return false;
 
