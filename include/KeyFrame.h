@@ -58,6 +58,7 @@ public:
     // 计算此关键帧的mBowVec，mFeatVec
     void ComputeBoW();
 
+
     // Covisibility graph functions
     /**
      * 在共视图Covisibility graph中添加边，并调用 UpdateBestCovisibles() 更新essential graph
@@ -67,19 +68,30 @@ public:
     void AddConnection(KeyFrame* pKF, const int &weight);
     void EraseConnection(KeyFrame* pKF);
 
+
     // 更新共视图Covisibility graph,essential graph和spanningtree，以及共视关系
     void UpdateConnections();
+
+
     // 更新 mvpOrderedConnectedKeyFrames,mvOrderedWeights,也就是共视图covisibility
     void UpdateBestCovisibles();    // 更新essential graph
     
-    // 返回此关键帧有共视关系的节点（即KeyFrames）
+
+    // 返回此关键帧有共视关系的节点（KeyFrames）
     std::set<KeyFrame *> GetConnectedKeyFrames();
-    // 返回Covisibility graph中与此节点连接的节点（即KeyFrames）
+
+
+    // 返回Covisibility graph中与此节点连接的节点（KeyFrames）
     std::vector<KeyFrame* > GetVectorCovisibleKeyFrames();
+
+
     // 返回Covisibility graph中与此节点连接的权值前N的节点（即KeyFrames）
     std::vector<KeyFrame*> GetBestCovisibilityKeyFrames(const int &N);
+
+
     std::vector<KeyFrame*> GetCovisiblesByWeight(const int &w);
     int GetWeight(KeyFrame* pKF);
+
 
     // Spanning tree functions
     // Spanning tree的节点为关键帧，**共视程度最高的那个关键帧**设置为节点在Spanning Tree中的**父节点**
@@ -90,10 +102,12 @@ public:
     KeyFrame* GetParent();
     bool hasChild(KeyFrame* pKF);
 
+
     // Loop Edges
     // 添加一个闭环检测帧
     void AddLoopEdge(KeyFrame* pKF);
     std::set<KeyFrame*> GetLoopEdges();
+
 
     // MapPoint observation functions
     /**
@@ -106,16 +120,22 @@ public:
     void EraseMapPointMatch(MapPoint* pMP);
     void ReplaceMapPointMatch(const size_t &idx, MapPoint* pMP);
 
+
     // 得到map point不是bad 的mappoint 集合
     std::set<MapPoint*> GetMapPoints();
 
+
     // 外部接口,大小是mvKeys大小,表示mappoint和此帧特征点(KeyPoint)的联系。如果没有联系则为NULL
+    // MapPoints match KeyPoint of this KeyFrame
     std::vector<MapPoint*> GetMapPointMatches();
 
-    // 返回此keyframe可以看到的mappoint，minObs表示返回的mappoint能被共视的最小值
+
+    // 返回此keyframe可以看到的mappoint，minObs表示返回的mappoint能被共视的**最小值**
     int TrackedMapPoints(const int &minObs);
 
+
     MapPoint* GetMapPoint(const size_t &idx);
+
 
     // KeyPoint functions
     /**
@@ -129,21 +149,26 @@ public:
     std::vector<size_t> GetFeaturesInArea(const float &x, const float  &y, const float  &r) const;
     cv::Mat UnprojectStereo(int i);
 
+
     // Image
     bool IsInImage(const float &x, const float &y) const;
+
 
     // Enable/Disable bad flag changes
     // Avoid that a keyframe can be erased while it is being process by loop closing
     void SetNotErase();
     void SetErase();
 
+
     // Set/check bad flag
     void SetBadFlag();
     bool isBad();
 
+
     // Compute Scene Depth (q=2 median). Used in monocular.
     // 返回mappoint集合在此帧的深度的中位数
     float ComputeSceneMedianDepth(const int q);
+
 
     static bool weightComp( int a, int b){
         return a>b;
@@ -215,15 +240,17 @@ public:
     const std::vector<float> mvDepth;   // negative value for monocular points
     const cv::Mat mDescriptors;         // 每个特征点描述子占一行，建立一个指针指向iL特征点对应的描述子
 
+
     // BoW
     /**
      * mBowVec本质是一个map<WordId, WordValue>
      * 对于某幅图像A，它的特征点可以对应多个单词，组成它的bow
      * 
      * 其中BowVector很好理解——就是用来表示图像的向量（同描述子类似）具体形式为[[在词典特征索引，权重]，[在词典特征索引，权重]，。。。]，
-     * 计算两图像的相似度最本质的就是计算这个向量两两间的距离。
+     * 计算两图像的相似度最本质的就是计算这个向量两两间的**dist距离**
      */
     DBoW2::BowVector mBowVec;
+
 
     /**
      * mFeatVec是一个std::map<NodeId, std::vector<unsigned int>>
@@ -298,8 +325,10 @@ protected:
 
     // 此keyframe在Spanning Tree中的父节点
     KeyFrame* mpParent;
+    
     // 此keyframe在Spanning Tree中的子节点集合
     std::set<KeyFrame*> mspChildrens;
+
     std::set<KeyFrame*> mspLoopEdges;
 
     // Bad flags

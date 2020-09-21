@@ -54,12 +54,12 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
     mbNotErase(false), mbToBeErased(false), mbBad(false), 
     mHalfBaseline(F.mb/2), mpMap(pMap)
 {
-    //将下一帧的帧号赋值给mnId，然后自增1
+    // 将下一帧的帧号赋值给mnId，然后自增1
     mnId=nNextId++;
 
-    //根据栅格的列数重置栅格的size
+    // 根据栅格的列数重置栅格的size
     mGrid.resize(mnGridCols);
-    //将该帧的栅格内信息拷贝了一份给关键帧类内的变量
+    // 将该帧的栅格内信息拷贝了一份给关键帧类内的变量
     for(int i=0; i<mnGridCols;i++)
     {
         mGrid[i].resize(mnGridRows);
@@ -67,7 +67,7 @@ KeyFrame::KeyFrame(Frame &F, Map *pMap, KeyFrameDatabase *pKFDB):
             mGrid[i][j] = F.mGrid[i][j];
     }
 
-    //最后将当前帧的姿态赋给该关键帧
+    // 最后将当前帧的姿态赋给该关键帧
     SetPose(F.mTcw);
 }
 
@@ -81,6 +81,7 @@ void KeyFrame::ComputeBoW()
         mpORBvocabulary->transform(vCurrentDesc,mBowVec,mFeatVec,4);
     }
 }
+
 
 void KeyFrame::SetPose(const cv::Mat &Tcw_)
 {
@@ -172,6 +173,7 @@ void KeyFrame::UpdateBestCovisibles()
     unique_lock<mutex> lock(mMutexConnections);
     vector<pair<int,KeyFrame*> > vPairs;
     vPairs.reserve(mConnectedKeyFrameWeights.size());
+
     // 取出所有连接的关键帧，将元素取出放入一个pair组成的vector中，排序后放入vPairs
     // mConnectedKeyFrameWeights 的类型为 std::map<KeyFrame*,int>，
     // 而 vPairs 变量将共视的3D点数放在前面，利于排序
@@ -353,9 +355,10 @@ MapPoint* KeyFrame::GetMapPoint(const size_t &idx)
 
 
 /**
+ * @brief
  * 该函数主要包含以下三部分内容：
- * a. 首先获得该KF的**所有MapPoint**，然后遍历观测到这些3d点的其它所有KFs, 对每一个找到的KF，先存储到相应的容器中
- * b. 计算所有共视帧与该帧的**连接权重**，权重 即为 共视的3d点的 数量，对这些连接按照权重从大到小进行排序。
+ * a. 首先获得该KF的**所有MapPoint**，然后遍历**观测到这些3d点的其它所有KFs(所有共视帧)**, 对每一个找到的KF，先存储到相应的容器中
+ * b. 计算**所有共视帧**与该帧的**连接权重**，权重 即为 共视的3d点的**数量**，对这些连接按照权重从大到小进行排序
  *    当该权重必须大于一个阈值，便 在两帧之间 建立边，如果没有超过该阈值的权重，那么就只保留 权重最大的 边
  *   （与其它关键帧的 共视程度 比较高）
  *    edge is built between the KeyFrames with the most shared MapPoints
@@ -367,6 +370,7 @@ void KeyFrame::UpdateConnections()
     // 在没有执行这个函数前，关键帧只和 MapPoints 之间有 连接关系，这个函数可以更新关键帧之间的连接关系
 
     //===============对应a部分内容==================================
+    // a. 首先获得该KF的**所有MapPoint**，然后遍历**观测到这些3d点的其它所有KFs(所有共视帧)**, 对每一个找到的KF，先存储到相应的容器中
     map<KeyFrame*,int> KFcounter;   // 和此关键帧有共视关系的**关键帧**及其可以共视的mappoint**数量**
 
     vector<MapPoint*> vpMP;         // 此关键帧可以看到的mappoint
@@ -379,8 +383,9 @@ void KeyFrame::UpdateConnections()
 
     // For all map points in one keyframe, check in which other keyframes are they seen
     // Increase counter for those keyframes
-    // 即 统计 每一个关键帧 都有多少 关键帧 与 它存在 共视关系，统计结果放在 KFcounter
-    // 计算每一个关键帧都有多少其他关键帧与它存在共视关系，结果放在KFcounter
+    /**
+     * 计算每一个关键帧**都有多少其他关键帧**与它存在共视关系，结果放在KFcounter
+     */
     // 遍历此关键帧可以看到的mappoint
     for(vector<MapPoint*>::iterator vit=vpMP.begin(), vend=vpMP.end(); vit!=vend; vit++)
     {
@@ -395,7 +400,7 @@ void KeyFrame::UpdateConnections()
         // 对于每一个 MapPoint ， observations 记录了可以观测到该 MapPoint 的所有 关键帧
         map<KeyFrame*,size_t> observations = pMP->GetObservations();
 
-        // 遍历此mappoint可以被看到的所有关键帧
+        // 遍历此mappoint可以被看到的**所有关键帧**
         for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
         {
             // 除去自身，自己与自己不算共视
@@ -412,6 +417,10 @@ void KeyFrame::UpdateConnections()
         return;
 
     //===============对应b部分内容==================================
+    // b. 计算**所有共视帧**与该帧的**连接权重KFcounter**，权重 即为 共视的3d点的**数量**，对这些连接按照权重从大到小进行**排序**
+    // 当该权重必须大于一个**阈值**，便 在两帧之间 建立边，如果没有超过该阈值的权重，那么就只保留 权重最大的 边（与其它关键帧的 共视程度 比较高）
+    // edge is built between the KeyFrames with the most shared MapPoints
+    //
     // If the counter is greater than threshold add connection between two keyframes
     // In case no keyframe counter is over threshold add the one with maximum counter
     // 通过3D点间接统计可以观测到这些3D点的所有关键帧之间的共视程度
@@ -424,22 +433,22 @@ void KeyFrame::UpdateConnections()
     // 当共视mappoint点数量达到一定阈值th的情况下，在covisibility graph添加一条边
     vector<pair<int,KeyFrame*> > vPairs;
     vPairs.reserve(KFcounter.size());
+    // 
     for(map<KeyFrame*,int>::iterator mit=KFcounter.begin(), mend=KFcounter.end(); mit!=mend; mit++) 
     {
-        if(mit->second>nmax) // weight > nmax
+        if(mit->second>nmax)    // weight > nmax
         {
-            nmax=mit->second;
-            // 找到对应权重最大的关键帧（共视程度最高的关键帧）
-            pKFmax=mit->first;
+            nmax=mit->second;   // update nmax, find the max value
+            pKFmax=mit->first;  // 找到对应权重最大的关键帧（共视程度最高的关键帧）
         }
-        if(mit->second>=th) // weight > th
+
+        if(mit->second>=th)     // weight > th
         {
-            // 对应权重 需要大于 阈值 ，对这些关键帧建立连接
-            // pair<weight, KF>
-            vPairs.push_back(make_pair(mit->second, mit->first));
+            // 对应 权重 需要大于**阈值**，对这些关键帧建立连接
+            vPairs.push_back(make_pair(mit->second, mit->first));   // mit->second: Weight
             // 更新 KFcounter 中该关键帧的 mConnectedKeyFrameWeights
             // 更新其它 KeyFrame 的 mConnectedKeyFrameWeights ，更新其它关键帧与当前帧的连接权重
-            (mit->first)->AddConnection(this, mit->second);
+            (mit->first)->AddConnection(this, mit->second);         // mit->first: KeyFrame
         }
     }
 
@@ -465,6 +474,7 @@ void KeyFrame::UpdateConnections()
     }
 
     //===============对应c部分内容==================================
+    // c. **更新 covisibility graph**，即把计算的 边 用来给 图 赋值，然后设置 spanning tree 中该帧的 父节点，即共视程度最高的那一帧
     {
         unique_lock<mutex> lockCon(mMutexConnections);
 
@@ -477,15 +487,20 @@ void KeyFrame::UpdateConnections()
         mvpOrderedConnectedKeyFrames = vector<KeyFrame*>(lKFs.begin(),lKFs.end());
         mvOrderedWeights = vector<int>(lWs.begin(), lWs.end());
 
-        // 更新生成树的连接
-        // 如果不是第一个关键帧，且此节点没有父节点
-        if(mbFirstConnection && mnId!=0)
+        /**
+         * 更新生成树的连接
+         * 
+         * 此keyframe在Spanning Tree中的父节点
+         * KeyFrame* mpParent
+         * 
+         * 此keyframe在Spanning Tree中的子节点集合
+         * std::set<KeyFrame*> mspChildrens;
+         */
+        if(mbFirstConnection && mnId!=0)                        // 不是第一个关键帧&&此节点没有父节点
         {
-            // 初始化 该关键帧的 父关键帧 为 **共视程度最高** 的那个关键帧
-            mpParent = mvpOrderedConnectedKeyFrames.front();
+            mpParent = mvpOrderedConnectedKeyFrames.front();    // !!!初始化 该关键帧的 父关键帧 为 **共视程度最高** 的那个关键帧
             // 建立双向连接关系
-            // 共视程度最高的那个关键帧在Spanning Tree中的子节点设置为此关键帧
-            mpParent->AddChild(this);
+            mpParent->AddChild(this);                           // !!!共视程度最高的那个关键帧在Spanning Tree中的**子节点设置为此关键帧**
             mbFirstConnection = false;
         }
 

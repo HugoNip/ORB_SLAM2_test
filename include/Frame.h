@@ -197,21 +197,27 @@ public:
 
     // Bag of Words Vector structures.
     /**
-     * mBowVec本质是一个map<WordId, WordValue>
+     * mBowVec 本质是一个map<WordId, WordValue>
      * 对于某幅图像A，它的特征点可以对应多个单词，组成它的bow
-     * Value of a word
-     * typedef double WordValue;
+     * 
+     * 其中 BowVector 很好理解——就是用来表示图像的向量（同描述子类似）具体形式为[[在词典特征索引，权重]，[在词典特征索引，权重]，。。。]，
+     * 计算两图像的相似度最本质的就是计算这个向量两两间的**dist距离**
      */
     DBoW2::BowVector mBowVec;
 
 
     /**
-     * Vector of nodes with indexes of local features
-     * class FeatureVector: public std::map<NodeId, std::vector<unsigned int>>
+     * mFeatVec 是一个std::map<NodeId, std::vector<unsigned int>>
+     * 将此帧的特征点分配到 mpORBVocabulary 树各个结点(node)，从而得到 mFeatVec
+     * mFeatVec->first      代表结点ID
+     * mFeatVec->second     std::vector<在mFeatVec->first结点的**特征点序号**>
      * 
-     * 将此帧的特征点分配到mpORBVocabulary树各个结点，从而得到mFeatVec
-     * mFeatVec->first代表结点ID
-     * mFeatVec->second代表在mFeatVec->first结点的特征点序号的vector集合
+     * Vector of nodes with indexes of local features
+     * class FeatureVector: 
+     *   public std::map<NodeId, std::vector<unsigned int> >
+     * 
+     * 这个向量是个map，其中以一张图片的**每个特征点**在词典某一层节点下**为条件进行分组，用来加速图形特征匹配
+     * ----两两图像特征匹配只需要对相同 NodeId 下的特征点进行匹配就好
      */
     DBoW2::FeatureVector mFeatVec;
 
@@ -251,7 +257,7 @@ public:
 
     // Scale pyramid info.
     // 从orbextractor拷贝的关于高斯金字塔的信息
-    int mnScaleLevels;                  // 高斯金字塔层数
+    int mnScaleLevels;                      // 高斯金字塔层数
     float mfScaleFactor;
     float mfLogScaleFactor;
     vector<float> mvScaleFactors;
