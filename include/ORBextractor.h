@@ -29,6 +29,7 @@
 namespace ORB_SLAM2
 {
 
+// 分配四叉树时用到的结点类型
 class ExtractorNode
 {
 public:
@@ -48,14 +49,28 @@ public:
     
     enum {HARRIS_SCORE=0, FAST_SCORE=1 };
 
+
+    /**
+     * @brief 
+     * 提取特征前的准备工作
+     * 
+     * @param nfeatures     ORB特征点数量
+     * @param scaleFactor   相邻层的放大倍数
+     * @param nlevels       层数
+     * @param iniThFAST     提取FAST角点时初始阈值
+     * @param minThFAST     提取FAST角点时,更小的阈值
+     * @note 设置两个阈值的原因是在FAST提取角点进行分块后有可能在某个块中在原始阈值情况下提取不到角点，使用更小的阈值进一步提取
+     */
     ORBextractor(int nfeatures, float scaleFactor, int nlevels,
                  int iniThFAST, int minThFAST);
 
     ~ORBextractor(){}
 
+
     // Compute the ORB features and descriptors on an image.
     // ORB are dispersed on the image using an octree.
     // Mask is ignored in the current implementation.
+    // 重载()运算符
     void operator()( cv::InputArray image, cv::InputArray mask,
       std::vector<cv::KeyPoint>& keypoints,
       cv::OutputArray descriptors);
@@ -82,32 +97,47 @@ public:
         return mvInvLevelSigma2;
     }
 
-    std::vector<cv::Mat> mvImagePyramid;
+
+    std::vector<cv::Mat> mvImagePyramid;    // 图像金字塔, 存放各层的图片
 
 protected:
 
+    /**
+     * 建立图像金字塔
+     * 将原始图像一级级缩小并依次存在mvImagePyramid里
+     */
     void ComputePyramid(cv::Mat image);
-    void ComputeKeyPointsOctTree(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);    
+
+
+    // 利用四叉树提取高斯金字塔中每层图像的orb关键点
+    void ComputeKeyPointsOctTree(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);   
+
+    
+    // 将关键点分配到四叉树，筛选关键点
     std::vector<cv::KeyPoint> DistributeOctTree(const std::vector<cv::KeyPoint>& vToDistributeKeys, const int &minX,
                                            const int &maxX, const int &minY, const int &maxY, const int &nFeatures, const int &level);
 
+
+    // 作者遗留下的旧的orb关键点方法
     void ComputeKeyPointsOld(std::vector<std::vector<cv::KeyPoint> >& allKeypoints);
-    std::vector<cv::Point> pattern;
 
-    int nfeatures;
-    double scaleFactor;
-    int nlevels;
-    int iniThFAST;
-    int minThFAST;
+    
+    std::vector<cv::Point> pattern;         // 存储关键点附近patch的点对相对位置
 
-    std::vector<int> mnFeaturesPerLevel;
+    int nfeatures;                          // 提取特征点的最大数量
+    double scaleFactor;                     // 每层之间的缩放比例
+    int nlevels;                            // 高斯金字塔的层数
+    int iniThFAST;                          // iniThFAST提取FAST角点时初始阈值
+    int minThFAST;                          // minThFAST提取FAST角点时更小的阈值
 
-    std::vector<int> umax;
+    std::vector<int> mnFeaturesPerLevel;    // 每层的特征数量
 
-    std::vector<float> mvScaleFactor;
-    std::vector<float> mvInvScaleFactor;    
-    std::vector<float> mvLevelSigma2;
-    std::vector<float> mvInvLevelSigma2;
+    std::vector<int> umax;                  // Patch圆的u轴方向最大坐标
+
+    std::vector<float> mvScaleFactor;       // 每层的相对于原始图像的缩放比例
+    std::vector<float> mvInvScaleFactor;    // mvScaleFactor的倒数
+    std::vector<float> mvLevelSigma2;       // mvScaleFactor的平方
+    std::vector<float> mvInvLevelSigma2;    // mvScaleFactor的平方的倒数
 };
 
 } //namespace ORB_SLAM

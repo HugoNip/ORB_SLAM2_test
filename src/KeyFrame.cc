@@ -139,8 +139,11 @@ cv::Mat KeyFrame::GetTranslation()
 }
 
 
-// pKF     需要关联的关键帧
-// weight  权重，即该关键帧与pKF共同观测到的3d点数量
+/**
+ * @brief
+ * @param pKF     需要关联的关键帧
+ * @param weight  权重，即该关键帧与pKF共同观测到的3d点数量
+ */
 void KeyFrame::AddConnection(KeyFrame *pKF, const int &weight)
 {
     {
