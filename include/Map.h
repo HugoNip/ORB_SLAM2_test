@@ -73,7 +73,7 @@ protected:
 
     std::vector<MapPoint*> mvpReferenceMapPoints;
 
-    long unsigned int mnMaxKFid;
+    long unsigned int mnMaxKFid;    // check this is the last KeyFrame
 
     // Index related to a big change in the map (loop closure, global BA)
     int mnBigChangeIdx;

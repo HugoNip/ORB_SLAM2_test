@@ -418,6 +418,17 @@ static int bit_pattern_31_[256*4] =
 };
 
 
+/**
+ * @brief 
+ * 提取特征前的准备工作
+ * 
+ * @param nfeatures     ORB特征点数量
+ * @param scaleFactor   相邻层的放大倍数
+ * @param nlevels       层数
+ * @param iniThFAST     提取FAST角点时初始阈值
+ * @param minThFAST     提取FAST角点时,更小的阈值
+ * @note 设置两个阈值的原因是在FAST提取角点进行分块后有可能在某个块中在原始阈值情况下提取不到角点，使用更小的阈值进一步提取
+ */
 ORBextractor::ORBextractor(int _nfeatures, float _scaleFactor, int _nlevels,
          int _iniThFAST, int _minThFAST):
     nfeatures(_nfeatures), scaleFactor(_scaleFactor), nlevels(_nlevels),

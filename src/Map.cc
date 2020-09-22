@@ -33,9 +33,10 @@ Map::Map():mnMaxKFid(0),mnBigChangeIdx(0)
 void Map::AddKeyFrame(KeyFrame *pKF)
 {
     unique_lock<mutex> lock(mMutexMap);
-    mspKeyFrames.insert(pKF);
-    if(pKF->mnId>mnMaxKFid)
-        mnMaxKFid=pKF->mnId;
+    
+    mspKeyFrames.insert(pKF);   // std::set<KeyFrame*> mspKeyFrames
+    if(pKF->mnId>mnMaxKFid)     // check this is the last KeyFrame, and never existed before
+        mnMaxKFid=pKF->mnId;    // set the KeyFrame id
 }
 
 

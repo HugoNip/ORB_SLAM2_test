@@ -106,7 +106,7 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight,
     mvLevelSigma2 = mpORBextractorLeft->GetScaleSigmaSquares();
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
-    // ORB extraction
+    // !!! ORB extraction
     thread threadLeft(&Frame::ExtractORB,this,0,imLeft);
     thread threadRight(&Frame::ExtractORB,this,1,imRight);
     threadLeft.join();
@@ -119,8 +119,8 @@ Frame::Frame(const cv::Mat &imLeft, const cv::Mat &imRight,
 
     UndistortKeyPoints();
 
-    // compute matches, 
-    // store depth, left + right coordinates of keypoints
+    // compute **matches**, 
+    // storge depth, left + right coordinates of keypoints
     ComputeStereoMatches();
 
     mvpMapPoints = vector<MapPoint*>(N,static_cast<MapPoint*>(NULL));    
@@ -180,7 +180,7 @@ Frame::Frame(const cv::Mat &imGray,
     mvLevelSigma2 = mpORBextractorLeft->GetScaleSigmaSquares();
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
-    // ORB extraction
+    // !!! ORB extraction
     ExtractORB(0,imGray);
 
     N = mvKeys.size();
@@ -218,6 +218,7 @@ Frame::Frame(const cv::Mat &imGray,
     AssignFeaturesToGrid();
 }
 
+
 // monocular
 Frame::Frame(const cv::Mat &imGray, 
              const double &timeStamp, 
@@ -247,7 +248,7 @@ Frame::Frame(const cv::Mat &imGray,
     mvLevelSigma2 = mpORBextractorLeft->GetScaleSigmaSquares();
     mvInvLevelSigma2 = mpORBextractorLeft->GetInverseScaleSigmaSquares();
 
-    // ORB extraction
+    // !!! ORB extraction
     ExtractORB(0,imGray);
 
     N = mvKeys.size();
@@ -287,6 +288,7 @@ Frame::Frame(const cv::Mat &imGray,
     AssignFeaturesToGrid();
 }
 
+
 void Frame::AssignFeaturesToGrid()
 {
     int nReserve = 0.5f*N/(FRAME_GRID_COLS*FRAME_GRID_ROWS);
@@ -303,6 +305,7 @@ void Frame::AssignFeaturesToGrid()
             mGrid[nGridPosX][nGridPosY].push_back(i);
     }
 }
+
 
 void Frame::ExtractORB(int flag, const cv::Mat &im)
 {
@@ -321,6 +324,7 @@ void Frame::SetPose(cv::Mat Tcw)
     mTcw = Tcw.clone();
     UpdatePoseMatrices();
 }
+
 
 void Frame::UpdatePoseMatrices()
 { 
@@ -399,6 +403,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 
     return true;
 }
+
 
 /**
  * 找到在 以x, y为中心,边长为2r的方形搜索框内且在[minLevel, maxLevel]的特征点
@@ -562,6 +567,7 @@ void Frame::UndistortKeyPoints()
     }
 }
 
+
 void Frame::ComputeImageBounds(const cv::Mat &imLeft)
 {
     if(mDistCoef.at<float>(0)!=0.0)
@@ -601,10 +607,10 @@ void Frame::ComputeImageBounds(const cv::Mat &imLeft)
 
 
 /**
- * 其作用是为左图的每一个特征点在右图中找到匹配点，
- * 根据基线(有冗余范围)上描述子距离找到匹配，
- * 再进行SAD精确定位，最后对所有SAD的值进行排序, 剔除SAD值较大的匹配对，
- * 然后利用抛物线拟合得到亚像素精度的匹配，匹配成功后会更新 mvuRight 和 mvDepth
+ * 其作用是为左图的每一个特征点在右图中找到**匹配点**，
+ * 根据基线(有冗余范围)上描述子距离找到**匹配**，
+ * 再进行SAD精确定位，最后对所有SAD的值进行排序, **剔除**SAD值较大的匹配对，
+ * 然后利用抛物线拟合得到亚像素精度的**匹配**，匹配成功后会**更新** mvuRight 和 mvDepth
  */
 void Frame::ComputeStereoMatches()
 {
@@ -823,7 +829,8 @@ void Frame::ComputeStereoMatches()
     }
 }
 
-// 根据像素坐标获取深度信息，如果深度存在则保存下来，这里还计算了假想右图的对应特征点的横坐标
+
+// 根据像素坐标获取深度信息，如果深度存在则保存下来，这里还计算了**假想右图的对应特征点的横坐标**
 void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth)
 {
     mvuRight = vector<float>(N,-1);
@@ -841,25 +848,28 @@ void Frame::ComputeStereoFromRGBD(const cv::Mat &imDepth)
 
         if(d>0)
         {
-            mvDepth[i] = d;
-            mvuRight[i] = kpU.pt.x-mbf/d; // 假想右图的对应特征点的横坐标
+            mvDepth[i] = d;                 // depth of KeyPoints -> return
+            mvuRight[i] = kpU.pt.x-mbf/d;   // 假想右图的对应特征点的横坐标 -> return
         }
     }
 }
 
-// 其作用是将特征点坐标反投影到3D地图点（世界坐标），
-// 在已知深度的情况下，则可确定二维像素点对应的尺度，最后获得3D中点坐标
+
+/**
+ * 其作用是将特征点坐标反投影到**3D地图点（世界坐标）**
+ * 在已知深度的情况下，则可确定二维像素点对应的尺度，最后获得3D中点坐标
+ */
 cv::Mat Frame::UnprojectStereo(const int &i)
 {
-    const float z = mvDepth[i];
+    const float z = mvDepth[i];                             // camera coordinate
     if(z>0)
     {
-        const float u = mvKeysUn[i].pt.x;
-        const float v = mvKeysUn[i].pt.y;
-        const float x = (u-cx)*z*invfx;
-        const float y = (v-cy)*z*invfy;
-        cv::Mat x3Dc = (cv::Mat_<float>(3,1) << x, y, z);
-        return mRwc*x3Dc+mOw; // transformation
+        const float u = mvKeysUn[i].pt.x;                   // 2d KeyPoint in image
+        const float v = mvKeysUn[i].pt.y;                   // 2d KeyPoint in image
+        const float x = (u-cx)*z*invfx;                     // camera coordinate
+        const float y = (v-cy)*z*invfy;                     // camera coordinate
+        cv::Mat x3Dc = (cv::Mat_<float>(3,1) << x, y, z);   // camera coordinate
+        return mRwc*x3Dc+mOw;                               // world coordinate
     }
     else
         return cv::Mat();

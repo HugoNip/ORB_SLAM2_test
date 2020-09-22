@@ -468,21 +468,24 @@ int ORBmatcher::SearchByProjection(KeyFrame* pKF, cv::Mat Scw, const vector<MapP
 
 
 /**
+ * @brief
  * Matching for the Map Initialization (only used in the monocular case)
  * 
- * 搜索F1和F2之间的匹配点放在vnMatches12。
+ * 搜索F1和F2之间的匹配点放在 vnMatches12
  * 如果mbCheckOrientation，则将F1中匹配成功的特征点按照其角度分类在rotHist中
  * 计算出rotHist，vnMatches12
+ * 
  * @param F1                参考帧
  * @param F2                当前帧
  * @param vbPrevMatched     F1中待匹配的特征点
- * @param vnMatches12       输出F1中特征点匹配情况，大小是F1的特征点数量。其中-1表示未匹配，大于0表示匹配的特征点在F2中的序号
+ * @param vnMatches12       输出F1中特征点匹配情况，大小是F1的特征点数量。其中-1表示未匹配，大于0表示匹配的特征点在F2中的序号   -> return
  * @param windowSize        加速匹配时用到的方形边长
  * @return                  成功匹配的数量
  */
 int ORBmatcher::SearchForInitialization(Frame &F1, Frame &F2, vector<cv::Point2f> &vbPrevMatched, vector<int> &vnMatches12, int windowSize)
 {
     int nmatches=0;
+    
     // 储存F1中匹配成功的点在**F2中的序号**
     vnMatches12 = vector<int>(F1.mvKeysUn.size(),-1);               // -1: unmatched, >0: idx of KeyPoint in F2
 

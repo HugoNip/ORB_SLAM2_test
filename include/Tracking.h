@@ -58,8 +58,8 @@ class System;
  * --------------------------
  * Tracking* mpTracker;
  * 
- * 系统将图片交给Tracking::GrabImageMonocular()后，先将图片转化为灰度图，然后使用图片构建了一个Frame。
- * 注意系统在初始化的时候使用了不同的ORBextractor来构建Frame，是应为在初始化阶段的帧需要跟多的特征点
+ * 系统将图片交给Tracking::GrabImageMonocular()后，先将图片转化为**灰度图**，然后使用图片构建了一个Frame。
+ * 注意系统在初始化的时候使用了不同的ORBextractor来构建Frame，是因为在**初始化阶段的帧**需要**更多的特征点**
  * 
  * Tracking执行了4个任务：
  * 1. 单目初始化
@@ -124,13 +124,14 @@ public:
     
     // 初始化时 三角化投影成功的匹配点对应的 3d点
     std::vector<cv::Point3f> mvIniP3D;          // [X, Y, Z]    MapPoints
+
     // 初始化的 第一帧，初始化需要两帧,世界坐标系就是这帧的坐标系
     Frame mInitialFrame;
 
     // Lists used to recover the full camera trajectory at the end of the execution.
     // Basically we store the **reference keyframe** for each frame and its **relative transformation**
-    list<cv::Mat> mlRelativeFramePoses; // Relative Frame Poses
-    list<KeyFrame*> mlpReferences;      // reference keyframe
+    list<cv::Mat> mlRelativeFramePoses;         // Relative Frame Poses
+    list<KeyFrame*> mlpReferences;              // Reference keyframes
     list<double> mlFrameTimes;
     list<bool> mlbLost;
 
@@ -147,6 +148,7 @@ protected:
     // Map initialization for stereo and RGB-D
     void StereoInitialization();
 
+
     // Map initialization for monocular
     /**
     * @brief 单目 的地图初始化
@@ -156,6 +158,7 @@ protected:
     */
     void MonocularInitialization();
 
+
     /**
      * 单目模式下 初始化后，开始建图
      * 将 mInitialFrame 和 mCurrentFrame 都设置为关键帧
@@ -164,7 +167,9 @@ protected:
      */
     void CreateInitialMapMonocular();
 
+
     void CheckReplacedInLastFrame();
+
 
     /**
     * 将上一帧的位姿 作为 当前帧 mCurrentFrame 的 初始位姿；
@@ -175,11 +180,13 @@ protected:
     */
     bool TrackReferenceKeyFrame();
 
+
     /**
      * 更新 mLastFrame
      * 更新 mlpTemporalPoints
      */
     void UpdateLastFrame();
+
 
     /**
       * @brief 根据匀速度模型对上一帧mLastFrame的MapPoints与当前帧mCurrentFrame进行特征点 **跟踪匹配**
@@ -191,20 +198,25 @@ protected:
       */    
     bool TrackWithMotionModel();
 
+
     // BOW搜索候选关键帧，PnP求解 **位姿**
     bool Relocalization();
+
 
     // 更新局部地图，即 更新 **局部地图keyframe** + **局部地图mappoint**
     void UpdateLocalMap();          // keyframe + mappoint
 
+
     // 将 mvpLocalKeyFrames 中的mappoint，添加到局部地图关键点 mvpLocalMapPoints 中
     void UpdateLocalPoints();       // Local MapPoints
+
 
     /**
      * 更新 mpReferenceKF，mCurrentFrame.mpReferenceKF
      * 更新 局部地图关键帧 mvpLocalKeyFrames
      */
     void UpdateLocalKeyFrames();    // ReferenceKF + LocalKeyFrames
+
 
     /**
     * @brief 对 mvpLocalKeyFrames ， mvpLocalMapPoints 进行跟踪
@@ -218,11 +230,14 @@ protected:
     */
     bool TrackLocalMap();
 
+
     // 在局部地图的mappoint中查找在当前帧视野范围内的点，将视野范围内的点和当前帧的特征点进行投影 **匹配**
     void SearchLocalPoints();
 
+
     // 判断是否需要添加新的keyframe
     bool NeedNewKeyFrame();
+
 
     /**
     * @brief 创建新的关键帧
@@ -230,6 +245,7 @@ protected:
     * 对于非单目的情况，同时创建新的MapPoints
     */
     void CreateNewKeyFrame();
+
 
     // In case of performing only localization, this flag is true when there are no matches to
     // points in the map. Still tracking will continue if there are enough matches with temporal points.
@@ -239,6 +255,7 @@ protected:
     // mbVO为false表示此帧匹配了很多的MapPoints，跟踪很正常，
     // mbVO为true表明此帧匹配了很少的MapPoints，少于10个，要跪的节奏
     bool mbVO;
+
 
     // Other Thread Pointers
     LocalMapping* mpLocalMapper;
@@ -258,7 +275,7 @@ protected:
     // Local Map
     // 参考关键帧
     // 在 CreateNewKeyFrame() 中，为当前帧
-    // 在 UpdateLocalKeyFrames() 中，为当前帧共视程度最高的关键帧, it maybe the most robust keyframe
+    // 在 UpdateLocalKeyFrames() 中，为与当前帧**共视程度最高**的关键帧, it maybe the most robust keyframe
     KeyFrame* mpReferenceKF;
     std::vector<KeyFrame*> mvpLocalKeyFrames;
     // mvpLocalKeyFrames 的 所有关键帧的所有匹配的 mappoint集合
