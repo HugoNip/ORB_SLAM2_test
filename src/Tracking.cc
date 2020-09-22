@@ -660,7 +660,12 @@ void Tracking::MonocularInitialization()
             // 当第一次进入该方法的时候，没有先前的帧数据，将当前帧保存为 初始帧 和 最后一帧 ，并初始化一个 初始化器
             mInitialFrame = Frame(mCurrentFrame);   // first rame
             mLastFrame = Frame(mCurrentFrame);      // last frame
-            // mvbPrevMatched最大的情况就是所有特征点都被跟踪上
+
+            /**
+             * mInitialFrame 中待匹配的特征点的 像素位置
+             * std::vector<cv::Point2f> mvbPrevMatched;    // [u, v] keypoints
+             * mvbPrevMatched最大的情况就是所有特征点都被跟踪上
+             */
             mvbPrevMatched.resize(mCurrentFrame.mvKeysUn.size());
             for(size_t i=0; i<mCurrentFrame.mvKeysUn.size(); i++)
                 mvbPrevMatched[i]=mCurrentFrame.mvKeysUn[i].pt;
@@ -671,6 +676,7 @@ void Tracking::MonocularInitialization()
 
             mpInitializer =  new Initializer(mCurrentFrame,1.0,200);
             // 将mvIniMatches全部初始化为-1
+            // 初始化时 得到的 特征点匹配，大小是 mInitialFrame/ReferenceFrame 1 的特征点数量，其值是 CurrentFrame 2 特征点 序号(idx)
             fill(mvIniMatches.begin(),mvIniMatches.end(),-1);
 
             return;

@@ -48,46 +48,66 @@ Initializer::Initializer(const Frame &ReferenceFrame, float sigma, int iteration
 
 
 /**
- * @brief 这个函数包含了整个初始化的全部流程，主要包括以下步骤：
- * 1）**重新组织** 特征点对。其实就是重新弄了一下数据结构，把匹配的点对序号放在一起，方便后面使用
- * 2）特征点对 **分组**。这一步主要是为了给 RANSAC 使用，对特征点对按照 RANSAC循环次数 随机分组
- * 3）两个线程 同时计算 **单应性矩阵H** 和 **本质矩阵F**
+ * @brief 
+ * 这个函数包含了整个初始化的全部流程，主要包括以下步骤：
+ * 1）**重新组织**特征点对。其实就是重新弄了一下数据结构，把匹配的点对序号放在一起，方便后面使用
+ * 2）特征点对**分组**。这一步主要是为了给 RANSAC 使用，对特征点对按照 RANSAC循环次数 随机分组
+ * 3）两个线程同时计算**单应性矩阵H**和**本质矩阵F**
  * 4）根据 三角化 成功点数 来判断是 **选** 单应性矩阵H 和 本质矩阵F 中的哪一个
  * 5）根据矩阵，使用 SFM方法 **恢复 R 和 t**
  * 
+ * // Reference Frame: 1, Current Frame: 2
+ * 
  * @param CurrentFrame      当前帧
- * @param vMatches12        ORB计算的 初步匹配结果
- * @param R21               输出的旋转矩阵, 1: camera1, 2: camera2                  -> return
+ * @param vMatches12        ORB计算的初步匹配结果
+ * @param R21               输出的旋转矩阵, 1: camera1 (ReferenceFrame), 2: camera2 (CurrentFrame) -> return
  * @param t21               输出的平移向量, Reference Frame: 1, Current Frame: 2    -> return
- * @param vP3D              三角化重投影成功的 匹配点 的 3d点 在相机1下的坐标
- * @param vbTriangulated    初始化成功后，特征点中三角化投影是否成功的标志位
+ * @param vP3D              其大小为vKeys1大小，表示三角化**重投影成功**的匹配点的3d点在相机1下的坐标, vector Projection 3D in camera 1
+ * @param vbTriangulated    其大小为vKeys1大小，表示初始化成功后，特征点中三角化**投影成功**的情况, vector bool Triangulated
+ * 
+ * Tracking.cc
+ * if(mpInitializer->Initialize(mCurrentFrame, mvIniMatches, Rcw, tcw, mvIniP3D, vbTriangulated)) // Rcw, tcw
+ * // 初始化时 得到的 特征点匹配，大小是 mInitialFrame 的特征点数量，其值是 当前帧特征点 序号(idx)
+ * std::vector<int> mvIniMatches;
  */
 bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatches12, cv::Mat &R21, cv::Mat &t21,
                              vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated)
 {
     // Fill structures with current keypoints and matches with reference frame
-    // Reference Frame: 1, Current Frame: 2
-    mvKeys2 = CurrentFrame.mvKeysUn;
+    mvKeys2 = CurrentFrame.mvKeysUn;        // CurrentFrame
 
-    // mvMatches12 储存着 匹配点对 在参考帧F1 和 当前帧F2 中的序号
     mvMatches12.clear();
-    mvMatches12.reserve(mvKeys2.size());
-    // mvbMatched1 记录 每个特征点 是否有 匹配的 特征点
+    mvMatches12.reserve(mvKeys2.size());    // CurrentFrame
+
+    // mvbMatched1 记录参考帧F1(ReferenceFrame/1)中 每个特征点 是否有 匹配的 特征点
     mvbMatched1.resize(mvKeys1.size());
+
     // 步骤1：组织特征点对
+    /**
+     * vMatches12
+     * 初始化时 得到的 特征点匹配
+     * 大小是 mInitialFrame/ReferenceFrame 1 的特征点数量
+     * i:               idx of KeyPoint in ReferenceFrame
+     * vMatches12[i]:   = CurrentFrame/2 特征点 序号(idx)
+     *                  = -1 (no matching KeyPoint in CurrentFrame/2)
+     */
     for(size_t i=0, iend=vMatches12.size();i<iend; i++)
     {
-        // has matching point
         if(vMatches12[i]>=0)
         {
-            mvMatches12.push_back(make_pair(i,vMatches12[i]));
-            mvbMatched1[i]=true;
+            /**
+             * mvMatches12 储存着匹配点对在参考帧F1(ReferenceFrame)和当前帧F2(CurrentFrame)中的序号
+             * typedef pair<int,int> Match;
+             * vector<Match> mvMatches12;
+             * vector<pair<idx of ReferenceFrame/1, idx of CurrentFrame/2>>
+             */
+            mvMatches12.push_back(make_pair(i, vMatches12[i]));
+            mvbMatched1[i]=true;                        // bool, ReferenceFrame
         }
         else
-            mvbMatched1[i]=false;
+            mvbMatched1[i]=false;                       // bool, ReferenceFrame
     }
-    // 匹配点数
-    const int N = mvMatches12.size();
+    const int N = mvMatches12.size();                   // 匹配点数
 
     // Indices for minimum set selection
     vector<size_t> vAllIndices;
@@ -99,15 +119,19 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
         vAllIndices.push_back(i);
     }
 
+
+    // =======================================================================================================
+    // START 2）特征点对**分组**。这一步主要是为了给 RANSAC 使用，对特征点对按照RANSAC循环次数(mMaxIterations)**随机分组**
+    //
     // Generate sets of 8 points for each RANSAC iteration
-    // 步骤2：在所有匹配特征点对中随机选择 8对 匹配特征点为一组，共选择 mMaxIterations组
-    // 用于 FindHomography 和 FindFundamental 求解
+    //
+    // 步骤2：在所有匹配特征点对中随机选择 8对 匹配特征点为一组，共选择 mMaxIterations 组
+    // 用于 FindHomography(H Matrix) 和 FindFundamental(F Matrix) 求解
     // mMaxIterations:200
     mvSets = vector< vector<size_t> >(mMaxIterations,vector<size_t>(8,0));
 
     DUtils::Random::SeedRandOnce(0);
 
-    // RANSAC循环 mMaxIterations次
     for(int it=0; it<mMaxIterations; it++)
     {
         vAvailableIndices = vAllIndices;
@@ -124,11 +148,16 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
             vAvailableIndices.pop_back();
         }
     }
+    // END 2）特征点对**分组**。这一步主要是为了给 RANSAC 使用，对特征点对按照RANSAC循环次数(mMaxIterations)**随机分组**
+    // =====================================================================================================
+
 
     // Launch threads to compute in parallel a fundamental matrix and a homography
     // 步骤3：调用多线程分别用于计算 fundamental matrix 和 homography matrix
     vector<bool> vbMatchesInliersH, vbMatchesInliersF;
-    // SH 计算 单应矩阵 的得分，SF 计算 基础矩阵 得分
+
+    // SH 计算 单应矩阵 得分
+    // SF 计算 基础矩阵 得分
     float SH, SF;
     cv::Mat H, F;
 
@@ -138,8 +167,7 @@ bool Initializer::Initialize(const Frame &CurrentFrame, const vector<int> &vMatc
     thread threadF(&Initializer::FindFundamental,this,ref(vbMatchesInliersF), ref(SF), ref(F));
 
     // Wait until both threads have finished
-    // 在这里等待线程 threadH ，threadF 结束才往下继续执行
-    // 也就是等待 SH ， SF 的结果
+    // 也就是等待SH，SF的结果
     threadH.join();
     threadF.join();
 
@@ -679,20 +707,29 @@ bool Initializer::ReconstructF(vector<bool> &vbMatchesInliers, cv::Mat &F21, cv:
 
 
 /**
- * 其实就是SFM方法，由于恢复的位姿不唯一，需要根据恢复的特征点位姿来判断哪个是正确的。
+ * @brief
+ * 其实就是SFM方法，由于恢复的位姿不唯一，需要根据恢复的特征点位姿来判断哪个是正确的
+ * 通过输入的H21计算Rt
+ * 1: ReferenceFrame
+ * 2: CurrentFrame
+ * R21: Rotation of CurrentFrame based on ReferenceFrame
  * 
- * @param vbMatchesInliers  匹配点中哪些可以通过H21重投影成功
+ * @param vbMatchesInliers  匹配点中哪些可以通过H21**重投影成功**
  * @param H21               单应性矩阵
  * @param K                 内参
  * @param R21               旋转矩阵
  * @param t21               平移向量
- * @param vP3D              三角化重投影成功的匹配点的3d点在相机1下的坐标
- * @param vbTriangulated    特征点是否重投影成功的标志位
+ * @param vP3D              三角化**重投影成功**的匹配点的3d点在 ReferenceFrame/相机1 下的坐标  -> return
+ * @param vbTriangulated    特征点是否**重投影成功**的标志位    -> return
  * @param minParallax       设置的最小视差角余弦值参数，输出Rt模型的视差角小于此值则返回失败
  * @param minTriangulated   匹配点中H21重投影成功的个数如果小于此值，返回失败
  */
-bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv::Mat &K,
-                      cv::Mat &R21, cv::Mat &t21, vector<cv::Point3f> &vP3D, vector<bool> &vbTriangulated, float minParallax, int minTriangulated)
+bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, 
+                               cv::Mat &H21, cv::Mat &K,
+                               cv::Mat &R21, cv::Mat &t21, 
+                               vector<cv::Point3f> &vP3D, 
+                               vector<bool> &vbTriangulated, 
+                               float minParallax, int minTriangulated) 
 {
     int N=0;
     for(size_t i=0, iend = vbMatchesInliers.size() ; i<iend; i++)
@@ -703,15 +740,15 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
     // Motion and structure from motion in a piecewise planar environment.
     // International Journal of Pattern Recognition and Artificial Intelligence, 1988
 
-    // 将H矩阵由图像坐标系变换到相机坐标系
+    // 将H矩阵由 图像坐标系 变换到 相机坐标系
     cv::Mat invK = K.inv();
     cv::Mat A = invK*H21*K;
 
     cv::Mat U,w,Vt,V;
     cv::SVD::compute(A,w,U,Vt,cv::SVD::FULL_UV);
-    V=Vt.t(); //vt转置
-    // cv::determinant(U) 为U的行列式
-    float s = cv::determinant(U)*cv::determinant(Vt);
+    V=Vt.t();   //vt转置
+    
+    float s = cv::determinant(U)*cv::determinant(Vt);   // cv::determinant(U) 为U的行列式
 
     float d1 = w.at<float>(0);
     float d2 = w.at<float>(1);
@@ -823,16 +860,18 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
     // We reconstruct all hypotheses and check in terms of 
     // triangulated points and parallax
     // 经过上面的计算，共有8种R、t计算结果，遍历这8种可能模型
-    // 通过计算出匹配点的三角化重投影成功的数量，来找出最好模型和次好模型
+    // 通过计算出匹配点的三角化**重投影成功**的数量，来找出**最好模型**和**次好模型**
     for(size_t i=0; i<8; i++)
     {
         float parallaxi;
         vector<cv::Point3f> vP3Di;
         vector<bool> vbTriangulatedi;
-        // 计算在输入Rt下，匹配点三角化重投影成功的 数量
-        int nGood = CheckRT(vR[i],vt[i],mvKeys1,mvKeys2,mvMatches12,vbMatchesInliers,K,vP3Di, 4.0*mSigma2, vbTriangulatedi, parallaxi);
 
-        if(nGood>bestGood)
+        // 计算在输入Rt下，匹配点三角化**重投影成功**的数量
+        // return: vP3Di, vbTriangulatedi, parallaxi
+        int nGood = CheckRT(vR[i], vt[i], mvKeys1, mvKeys2, mvMatches12, vbMatchesInliers, K, vP3Di, 4.0*mSigma2, vbTriangulatedi, parallaxi);
+
+        if(nGood>bestGood)                      // update the best and second good results
         {
             secondBestGood = bestGood;
             bestGood = nGood;
@@ -841,22 +880,24 @@ bool Initializer::ReconstructH(vector<bool> &vbMatchesInliers, cv::Mat &H21, cv:
             bestP3D = vP3Di;
             bestTriangulated = vbTriangulatedi;
         }
-        else if(nGood>secondBestGood)
+        else if(nGood>secondBestGood)           // update the second good results
         {
             secondBestGood = nGood;
         }
     }
 
-    // secondBestGood<0.75*bestGood 如果最好模型与次好模型 差距 足够大
-    // bestParallax>=minParallax    最好模型对应的 视差角 大于此值
-    // bestGood>minTriangulated     最好模型对应的 匹配点三角化重投影成功 数量 大于此阈值
-    // bestGood>0.9*N               匹配点三角化重投影成功数量 占 通过H重投影成功数量 的比例需要 大于0.9
+    /**
+     * secondBestGood<0.75*bestGood 如果最好模型与次好模型 差距 足够大
+     * bestParallax>=minParallax    最好模型对应的 视差角 大于此值
+     * bestGood>minTriangulated     最好模型对应的 匹配点三角化重投影成功 数量 大于此阈值
+     * bestGood>0.9*N               匹配点三角化重投影成功数量 占 通过H重投影成功数量 的比例需要 大于0.9
+     */
     if(secondBestGood<0.75*bestGood && bestParallax>=minParallax && bestGood>minTriangulated && bestGood>0.9*N)
     {
         vR[bestSolutionIdx].copyTo(R21);
         vt[bestSolutionIdx].copyTo(t21);
-        vP3D = bestP3D;
-        vbTriangulated = bestTriangulated;
+        vP3D = bestP3D;                         // return
+        vbTriangulated = bestTriangulated;      // return
 
         return true;
     }
@@ -941,17 +982,20 @@ void Initializer::Normalize(const vector<cv::KeyPoint> &vKeys,
 
 
 /**
+ * @brief
+ * 计算在输入Rt下，匹配点三角化重投影成功的数量
+ * 
  * @param R                 旋转矩阵
  * @param t                 平移矩阵
  * @param vKeys1            帧1 的 特征点
  * @param vKeys2            帧2 的 特征点
- * @param vMatches12        orbmatcher 计算的 初匹配
- * @param vbMatchesInliers  匹配点中 哪些可以 通过 H 或者 F 重投影成功
+ * @param vMatches12        orbmatcher 计算的**初匹配**
+ * @param vbMatchesInliers  匹配点中 哪些可以 通过 H 或者 F **重投影成功**
  * @param K                 相机内参
- * @param vP3D              三角化重投影 成功的 匹配点 的3d点在 相机1下 的坐标
- * @param th2               根据 三角化重投影 误差 判断 匹配点 是否重投影成功的 阈值
- * @param vbGood            特征点 哪些 三角化重投影 成功
- * @param parallax          三角化重投影 成功匹配 点的 视差角
+ * @param vP3D              三角化**重投影成功**的匹配点的3d点 在相机1下的坐标 -> return
+ * @param th2               根据 三角化重投影 误差 判断 匹配点 是否**重投影成功**的阈值
+ * @param vbGood            特征点哪些三角化**重投影成功** -> return
+ * @param parallax          三角化**重投影成功**匹配点的**视差角** -> return
  */
 int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t, 
                          const vector<cv::KeyPoint> &vKeys1, 
@@ -970,15 +1014,43 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t,
     const float cx = K.at<float>(0,2);
     const float cy = K.at<float>(1,2);
 
-    vbGood = vector<bool>(vKeys1.size(),false);
-    vP3D.resize(vKeys1.size());
+    vbGood = vector<bool>(vKeys1.size(),false); // return
+    vP3D.resize(vKeys1.size());                 // return
 
     vector<float> vCosParallax;
     vCosParallax.reserve(vKeys1.size());
 
     // Camera 1 Projection Matrix K[I|0]
-    // 相机1 的 投影矩阵 K[I|0]，世界坐标系和相机1坐标系相同
-    cv::Mat P1(3, 4, CV_32F, cv::Scalar(0));
+    /** 
+     * Operation: Extracts a rectangular submatrix
+     * C++: Mat Mat::operator()(Range rowRange, Range colRange) const
+     * C++: Mat Mat::operator()(const Rect& roi) const
+     * C++: Mat Mat::operator()(const Range* ranges) const
+     * 
+     * Parameters:
+     * rowRange – Start and end row of the extracted submatrix. The upper boundary is not included. To select all the rows, use Range::all().
+     * colRange – Start and end column of the extracted submatrix. The upper boundary is not included. To select all the columns, use Range::all().
+     * roi – Extracted submatrix specified as a rectangle.
+     * ranges – Array of selected ranges along each array dimension.
+     * 
+     * Example:
+     * Mat Test = (Mat_<double>(3,3) << 0,1,2, 3,4,5, 6,7,8);  
+     * cout << "Total matrix:" << endl;  
+     * cout << Test << endl;
+     * Mat testrow = Test.rowRange(0,1).clone();  
+     * cout << testrow << endl;  
+     * cout << Test.row(0) << endl;
+     * 
+     * show same result [0, 1, 2]
+     * 
+     * ===============================================
+     * 相机1 的 投影矩阵 K[I|0]，世界坐标系和相机1坐标系相同
+     * 
+     * P1 [fx  0 cx]
+     *    [0  fy cy]
+     *    [0   0  1]
+     */
+    cv::Mat P1(3, 4, CV_32F, cv::Scalar(0));    // K
     K.copyTo(P1.rowRange(0,3).colRange(0,3));   // Copies K to P1
     
     // 相机1 的 光心 在世界坐标系坐标
@@ -1001,20 +1073,17 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t,
         if(!vbMatchesInliers[i])
             continue;
 
-
-
-
-
         // kp1和kp2 是 匹配特征点
         const cv::KeyPoint &kp1 = vKeys1[vMatches12[i].first];
         const cv::KeyPoint &kp2 = vKeys2[vMatches12[i].second];
 
-        // 3d点在相机1和世界坐标系下的 坐标
+        // 3d点在 相机1/世界坐标系/ReferenceFrame 下的坐标
         cv::Mat p3dC1; // 3d point in C1/world coordinate
 
         // 输出的 p3dC1 是综合考虑了 P1 , P2 的kp1,kp2 匹配点 在世界坐标系中的 齐次坐标
 	    // 由于世界坐标系和相机1坐标系 重合，所以 p3dC1 同时也是 匹配点 对应的空间点 在 相机1 坐标系中的 坐标
         Triangulate(kp1, kp2, P1, P2, p3dC1);
+
         // isfinite()判断一个浮点数是否是一个有限值
 	    // 相当于是确定 p3dC1 前三位数值正常
         if(!isfinite(p3dC1.at<float>(0)) || !isfinite(p3dC1.at<float>(1)) || !isfinite(p3dC1.at<float>(2)))
@@ -1022,9 +1091,6 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t,
             vbGood[vMatches12[i].first]=false;
             continue;
         }
-
-
-
 
 
         // Check parallax
@@ -1054,9 +1120,6 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t,
             continue;
 
 
-
-
-
         // Check reprojection error in first image
         // 计算3D点在第一个图像上的投影误差
         float im1x, im1y;
@@ -1070,9 +1133,6 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t,
             continue;
 
 
-
-
-
         // Check reprojection error in second image
         float im2x, im2y;
         float invZ2 = 1.0/p3dC2.at<float>(2);
@@ -1083,10 +1143,6 @@ int Initializer::CheckRT(const cv::Mat &R, const cv::Mat &t,
 
         if(squareError2>th2)
             continue;
-
-
-
-
 
 
         // 统计经过检验的 3D点 个数，记录3D点视差角

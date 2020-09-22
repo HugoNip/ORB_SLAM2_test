@@ -115,10 +115,13 @@ public:
 
     // Initialization Variables (Monocular)
     std::vector<int> mvIniLastMatches;
+
     // 初始化时 得到的 特征点匹配，大小是 mInitialFrame 的特征点数量，其值是 当前帧特征点 序号(idx)
     std::vector<int> mvIniMatches;
+
     // mInitialFrame 中待匹配的特征点的 像素位置
     std::vector<cv::Point2f> mvbPrevMatched;    // [u, v]       keypoints
+    
     // 初始化时 三角化投影成功的匹配点对应的 3d点
     std::vector<cv::Point3f> mvIniP3D;          // [X, Y, Z]    MapPoints
     // 初始化的 第一帧，初始化需要两帧,世界坐标系就是这帧的坐标系
