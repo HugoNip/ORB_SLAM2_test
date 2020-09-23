@@ -469,8 +469,10 @@ void Tracking::Track()
 
         /**
          * 在跟踪且建图情况下，如果bOK为真，则调用 Tracking::TrackLocalMap() 跟踪局部地图；
-         * 在只跟踪情况下，只有bOK为真且mbVO为假（mbVO为真则说明跟局部地图也没有什么匹配的点，无法跟踪局部地图）时才调用 Tracking::TrackLocalMap() 跟踪局部地图。
-         * 因此，跟踪局部地图就是调用 Tracking::TrackLocalMap() 这个函数，该函数也会返回一个bool值表示跟踪结果是否令人满意，其将被作为新的bOK。
+         * 在只跟踪情况下，只有bOK为真且mbVO为假（ mbVO 为真则说明跟局部地图也没有什么匹配的点，无法跟踪局部地图）时
+         * 才调用 Tracking::TrackLocalMap() 跟踪局部地图
+         * 因此，跟踪局部地图就是调用 Tracking::TrackLocalMap() 这个函数，
+         * 该函数也会返回一个bool值表示跟踪结果是否令人满意，其将被作为新的bOK。
          * 
          * 如果跟踪局部地图后bOK为真，则Tracking的状态mState为OK；否则mState状态为LOST。
          * 需要注意的是，有可能跟踪估计位姿那一步结果就不好因此没有进行后续的局部地图跟踪，该情况也会有bOK=false，因此mState也会是LOST。
