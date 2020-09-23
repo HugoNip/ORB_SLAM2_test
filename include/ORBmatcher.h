@@ -41,7 +41,7 @@ public:
 
     /**
      * 找到在 以x, y为中心,边长为2r的方形内且尺度在[minLevel, maxLevel]的特征点
-     * @param nnratio   匹配特征点时，确定时候最好匹配与次好匹配差距的阈值。其值越小，其匹配越精确
+     * @param nnratio   匹配特征点时，最好匹配与次好匹配差距的阈值。其值越小，其匹配越精确
      * @param checkOri  是否开启匹配点的方向分类
      */
     ORBmatcher(float nnratio=0.6, bool checkOri=true);

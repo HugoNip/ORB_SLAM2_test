@@ -1474,8 +1474,10 @@ int ORBmatcher::SearchBySim3(KeyFrame *pKF1, KeyFrame *pKF2, vector<MapPoint*> &
 // Used to track from **previous frame** (Tracking)
 // previous frame->lastFrame
 /**
+ * @brief
  * 根据上一帧LastFrame的特征点以及所对应的mappoint信息，寻找当前帧的哪些特征点与哪些mappoint的**匹配联系**
- * 根据上一帧特征点对应的3D点投影的位置缩小特征点匹配范围
+ * 根据上一帧特征点对应的3D点投影的位置**缩小特征点匹配范围**
+ * 
  * @param  CurrentFrame     当前帧
  * @param  LastFrame        上一帧
  * @param  th               控制特征搜索框的大小阈值
