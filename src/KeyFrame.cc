@@ -341,7 +341,11 @@ int KeyFrame::TrackedMapPoints(const int &minObs)
 }
 
 
-// all matched mappoint, including bad mappoint
+/**
+ * @brief
+ * 外部接口,大小是mvKeys大小,表示mappoint和此帧特征点(KeyPoint)的联系。如果没有联系则为NULL
+ * MapPoints match KeyPoint of this KeyFrame
+ */
 vector<MapPoint*> KeyFrame::GetMapPointMatches()
 {
     unique_lock<mutex> lock(mMutexFeatures);

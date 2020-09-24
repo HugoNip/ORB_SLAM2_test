@@ -125,8 +125,11 @@ public:
     std::set<MapPoint*> GetMapPoints();
 
 
-    // 外部接口,大小是mvKeys大小,表示mappoint和此帧特征点(KeyPoint)的联系。如果没有联系则为NULL
-    // MapPoints match KeyPoint of this KeyFrame
+    /**
+     * @brief
+     * 外部接口,大小是mvKeys大小,表示mappoint和此帧特征点(KeyPoint)的联系。如果没有联系则为NULL
+     * MapPoints match KeyPoint of this KeyFrame
+     */
     std::vector<MapPoint*> GetMapPointMatches();
 
 

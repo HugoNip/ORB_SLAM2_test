@@ -836,7 +836,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
                     if(!bStereo1)
                         continue;
 
-                const cv::KeyPoint &kp1 = pKF1->mvKeysUn[idx1];             // KeyPoint
+                const cv::KeyPoint &kp1 = pKF1->mvKeysUn[idx1];             // KeyPoint/idx1
 
                 const cv::Mat &d1 = pKF1->mDescriptors.row(idx1);           // Descriptor
 
@@ -844,9 +844,11 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
                 int bestIdx2 = -1;
 
                 // 在pk2中相同的节点中寻找匹配的特征点
+                // index of MapPoint in Frame 1 is as same as that of KeyPoint in Frame 1
+                // index of MapPoint in Frame 2 is as same as that of KeyPoint in Frame 2
                 for(size_t i2=0, iend2=f2it->second.size(); i2<iend2; i2++)
                 {
-                    size_t idx2 = f2it->second[i2];
+                    size_t idx2 = f2it->second[i2];                         // KeyPoint/idx2
 
                     MapPoint* pMP2 = pKF2->GetMapPoint(idx2);               // MapPoint in F2
 
@@ -959,6 +961,7 @@ int ORBmatcher::SearchForTriangulation(KeyFrame *pKF1, KeyFrame *pKF2, cv::Mat F
  * @brief
  * 将vpMapPoints中的mappoint与pKF的特征点进行**匹配**
  * 若匹配的特征点已有mappoint与其匹配，则选择其一与此特征点匹配，并抹去没有选择的那个mappoint，此为mappoint的**融合**
+ * 
  * @param radius    为在vpMapPoints投影到pKF搜索待匹配的特征点时的方框边长
  * @return          融合的mappoint的数量
  */
