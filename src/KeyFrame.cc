@@ -220,10 +220,10 @@ vector<KeyFrame*> KeyFrame::GetBestCovisibilityKeyFrames(const int &N)
 {
     unique_lock<mutex> lock(mMutexConnections);
     if((int)mvpOrderedConnectedKeyFrames.size()<N)
-        return mvpOrderedConnectedKeyFrames;
+        return mvpOrderedConnectedKeyFrames;                                // Orderly
     else
         return vector<KeyFrame*>(mvpOrderedConnectedKeyFrames.begin(),
-                                 mvpOrderedConnectedKeyFrames.begin()+N); // Orderly
+                                 mvpOrderedConnectedKeyFrames.begin()+N);   // Orderly
 }
 
 

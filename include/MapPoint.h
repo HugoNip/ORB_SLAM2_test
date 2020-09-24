@@ -138,7 +138,7 @@ public:
     bool mbTrackInView;
     int mnTrackScaleLevel;
     float mTrackViewCos;
-    long unsigned int mnTrackReferenceForFrame;
+    long unsigned int mnTrackReferenceForFrame; // 防止重复添加局部MapPoint
     long unsigned int mnLastFrameSeen;
 
     // Variables used by local mapping

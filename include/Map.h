@@ -35,6 +35,9 @@ namespace ORB_SLAM2
 class MapPoint;
 class KeyFrame;
 
+/**
+ * 系统初始化了地图类（Map），同样是用一个成员指针指“mpMap”向它。该类将保存所有关键帧和地图点的指针。
+ */
 class Map
 {
 public:
@@ -71,7 +74,7 @@ protected:
     std::set<MapPoint*> mspMapPoints;
     std::set<KeyFrame*> mspKeyFrames;
 
-    std::vector<MapPoint*> mvpReferenceMapPoints;
+    std::vector<MapPoint*> mvpReferenceMapPoints;   // 地图的参考地图点
 
     long unsigned int mnMaxKFid;    // check this is the last KeyFrame
 

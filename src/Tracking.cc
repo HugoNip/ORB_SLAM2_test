@@ -464,7 +464,7 @@ void Tracking::Track()
         }
 
         // 将最新的关键帧作为reference frame
-        mCurrentFrame.mpReferenceKF = mpReferenceKF;
+        mCurrentFrame.mpReferenceKF = mpReferenceKF;    // update reference KeyFrame
 
 
         /**
@@ -566,6 +566,9 @@ void Tracking::Track()
         // 如果mState==LOST，且mpMap->KeyFramesInMap()>5，则会在下一帧中执行bOK = Relocalization();
         if(mState==LOST)
         {
+            /**
+             * 系统初始化了地图类（Map），同样是用一个成员指针“mpMap”指向它, 该类将保存所有关键帧和地图点的指针。
+             */
             if(mpMap->KeyFramesInMap()<=5)
             {
                 cout << "Track lost soon after initialisation, reseting..." << endl;
@@ -574,6 +577,11 @@ void Tracking::Track()
             }
         }
 
+        /**
+         * Reference Keyframe
+         * 参考关键帧，有共视mappoint, 共视程度最高（共视的mappoint数量最多）的关键帧
+         * KeyFrame* mpReferenceKF;
+         */
         if(!mCurrentFrame.mpReferenceKF)
             mCurrentFrame.mpReferenceKF = mpReferenceKF;
 
@@ -946,7 +954,7 @@ void Tracking::CreateInitialMapMonocular()
     /**
      * 8）其他变量的初始化
      * 
-     * 向 mpLocalMapper 插入关键帧 pKFini，pKFcur
+     * 向 mpLocalMapper 插入关键帧 pKFini ， pKFcur
      */
     mpLocalMapper->InsertKeyFrame(pKFini);
     mpLocalMapper->InsertKeyFrame(pKFcur);
@@ -1322,12 +1330,12 @@ bool Tracking::TrackWithMotionModel()
  * 对mvpLocalKeyFrames，mvpLocalMapPoints进行跟踪
  *
  * 投影，从已经生成的地图点中找到更多对应关系
- * 1.更新Covisibility Graph， 更新局部关键帧
- * 2.根据局部关键帧，更新局部地图点，接下来运行过滤函数 isInFrustum
+ * 1.**更新**Covisibility Graph， 更新局部关键帧
+ * 2.根据局部关键帧，**更新**局部地图点，接下来运行过滤函数 isInFrustum
  * 3.将地图点投影到当前帧上，超出图像范围的舍弃
  * 4.当前视线方向v和地图点云平均视线方向n, 舍弃n*v<cos(60)的点云
  * 5.舍弃地图点到相机中心距离不在一定阈值内的点
- * 6.计算图像的尺度因子 isInFrustum 函数结束
+ * 6.计算图像的**尺度因子** isInFrustum 函数结束
  * 7.进行非线性最小二乘优化
  * 8.更新地图点的统计量
  * 
@@ -1346,8 +1354,7 @@ bool Tracking::TrackLocalMap()
     // keyframe, mappoint
     UpdateLocalMap();
 
-    // 在局部地图的mappoint中查找在当前帧视野范围内的点，将视野范围内的点和当前帧的特征点进行投影匹配
-    // keypoint, ? which point?
+    // 在**局部地图的mappoint**中查找在当前帧视野范围内的点，将视野范围内的点和当前帧的特征点进行投影匹配
     SearchLocalPoints();
 
     // 在这个函数之前，在Relocalization、TrackReferenceKeyFrame、TrackWithMotionModel中都有位姿优化，
@@ -1693,6 +1700,7 @@ void Tracking::SearchLocalPoints()
     }
 }
 
+
 void Tracking::UpdateLocalMap()
 {
     // This is for visualization
@@ -1738,14 +1746,24 @@ void Tracking::UpdateLocalPoints()
 
 
 /**
- * @brief 更新 mpReferenceKF ，mCurrentFrame.mpReferenceKF
- * 更新局部地图关键帧 mvpLocalKeyFrames
+ * @brief 
+ * 更新 mvpLocalKeyFrames
+ * 更新 mpReferenceKF
+ * 更新 mCurrentFrame.mpReferenceKF
+ * 
+ * 局部关键帧一定是和当前帧有关联
  */
 void Tracking::UpdateLocalKeyFrames()
 {
-    // Each map point vote for the keyframes in which it has been observed
-    // 遍历当前帧的mappoint，将所有能观测到这些mappoint的keyframe，及其可以观测的这些mappoint数量存入keyframeCounter
-    map<KeyFrame*,int> keyframeCounter; // <Keyframe, number of MPs>
+    /**
+     * Each map point vote for the keyframes in which it has been observed
+     * mvpMapPoints is observed by mCurrentFrame
+     * mvpMapPoints are also observed by other KeyFrames
+     * For each KeyFrame, keyframeCounter storges how many MapPoints can be observed by these KeyFrames
+     * 投票信息被保存在 keyframeCounter
+     * pKFmax is the KeyFrame which shares the maximum number of covisible MapPoints with current frame
+     */
+    map<KeyFrame*,int> keyframeCounter;                     // <Keyframe, number of MPs>
     for(int i=0; i<mCurrentFrame.N; i++)
     {
         if(mCurrentFrame.mvpMapPoints[i])
@@ -1755,7 +1773,7 @@ void Tracking::UpdateLocalKeyFrames()
             {
                 const map<KeyFrame*,size_t> observations = pMP->GetObservations();
                 for(map<KeyFrame*,size_t>::const_iterator it=observations.begin(), itend=observations.end(); it!=itend; it++)
-                    keyframeCounter[it->first]++;
+                    keyframeCounter[it->first]++;           // it->first: KeyFrame
             }
             else
             {
@@ -1768,67 +1786,92 @@ void Tracking::UpdateLocalKeyFrames()
         return;
 
     int max=0;
-    KeyFrame* pKFmax= static_cast<KeyFrame*>(NULL);
+    KeyFrame* pKFmax= static_cast<KeyFrame*>(NULL);         // 将共视点最多的关键帧的指针同时保存为 pKFmax
 
-    // 先清空局部地图关键帧
+    // 先清空 局部地图关键帧
     mvpLocalKeyFrames.clear();
     mvpLocalKeyFrames.reserve(3*keyframeCounter.size());
 
     // **All** keyframes that observe a map point are included in the local map. Also check which keyframe shares most points
-    // 向 mvpLocalKeyFrames 添加能观测到当前帧MapPoints的关键帧
+    /**
+     * 向 mvpLocalKeyFrames 添加能观测到当前帧MapPoints的关键帧
+     * 共视图（ Covisibility Graph ）
+     * 该图的**节点**是关键帧
+     * 该图的**边的权重**是其连接的两关键帧之间共同观察到的**地图点的数量**（边连接着有共视地图点的两关键帧）
+     */
     for(map<KeyFrame*,int>::const_iterator it=keyframeCounter.begin(), itEnd=keyframeCounter.end(); it!=itEnd; it++)
     {
-        KeyFrame* pKF = it->first;
+        KeyFrame* pKF = it->first;                          // KeyFrame
 
         if(pKF->isBad())
             continue;
 
         // 更新max，pKFmax，以寻找**能看到最多mappoint的keyframe**
-        if(it->second>max)
+        if(it->second>max)                                  
         {
-            max=it->second;
-            pKFmax=pKF;
+            max=it->second;                                 // update the maximum number of covisible MapPoints
+            pKFmax=pKF;                                     // update the KeyFrame
         }
 
-        mvpLocalKeyFrames.push_back(it->first);
+        mvpLocalKeyFrames.push_back(it->first);             // Local Map KeyFrames
+
         // mnTrackReferenceForFrame 防止重复添加局部地图关键帧
         pKF->mnTrackReferenceForFrame = mCurrentFrame.mnId;
     }
 
 
     // Include also some not-already-included keyframes that are neighbors to already-included keyframes
-    // 遍历 mvpLocalKeyFrames ，以向 mvpLocalKeyFrames 添加更多的关键帧。有三种途径：
-    // 1.取出此关键帧itKF在Covisibilitygraph中共视程度最高的10个关键帧；
-    // 2.取出此关键帧itKF在Spanning tree中的子节点；
-    // 3.取出此关键帧itKF在Spanning tree中的父节点；
+    /**
+     * 遍历 mvpLocalKeyFrames ，以向 mvpLocalKeyFrames 添加更多的关键帧。有三种途径：
+     * 1.取出此关键帧 itKF 在 Covisibilitygraph 中共视程度最高的10个关键帧；
+     * 2.取出此关键帧 itKF 在 Spanning tree 中的子节点；
+     * 3.取出此关键帧 itKF 在 Spanning tree 中的父节点；
+     */
     for(vector<KeyFrame*>::const_iterator itKF=mvpLocalKeyFrames.begin(), itEndKF=mvpLocalKeyFrames.end(); itKF!=itEndKF; itKF++)
     {
         // Limit the number of keyframes
         if(mvpLocalKeyFrames.size()>80)
-            break;
+            break;                                          // return
 
         KeyFrame* pKF = *itKF;
 
         // 1.取出此关键帧itKF在essential graph中共视程度最高的10个关键帧
-        const vector<KeyFrame*> vNeighs = pKF->GetBestCovisibilityKeyFrames(10);
+        const vector<KeyFrame*> vNeighs = pKF->GetBestCovisibilityKeyFrames(10);    // Orderly
 
         for(vector<KeyFrame*>::const_iterator itNeighKF=vNeighs.begin(), itEndNeighKF=vNeighs.end(); itNeighKF!=itEndNeighKF; itNeighKF++)
         {
-            KeyFrame* pNeighKF = *itNeighKF;
+            KeyFrame* pNeighKF = *itNeighKF;                                // 1/10
             if(!pNeighKF->isBad())
             {
                 if(pNeighKF->mnTrackReferenceForFrame!=mCurrentFrame.mnId)
                 {
-                    // 向 mvpLocalKeyFrames 添加更多的关键帧
-                    mvpLocalKeyFrames.push_back(pNeighKF);
-                    pNeighKF->mnTrackReferenceForFrame=mCurrentFrame.mnId;
-                    break;
+                    /**
+                     * 向 mvpLocalKeyFrames 添加更多的关键帧
+                     * 
+                     * 一旦碰到好关键帧并且之前没碰到的（其 mnTrackReferenceForFrame 不是当前帧ID）就把它当做局部关键帧保存
+                     * 并将 mnTrackReferenceForFrame 改为当前帧ID，随后跳出对这些相邻关键帧的遍历
+                     * （也就是说之前的一张局部关键帧[pKF]最多只能再带进来一张相邻关键帧[itNeighKF]）
+                     */
+                    mvpLocalKeyFrames.push_back(pNeighKF);                  // return
+                    pNeighKF->mnTrackReferenceForFrame=mCurrentFrame.mnId;  // update reference Frame ID
+                    break;  // （也就是说之前的一张局部关键帧[pKF]最多只能再带进来一张相邻关键帧[itNeighKF]）
                 }
             }
         }
 
-        // 2.取出此关键帧itKF在Spanning tree中的 子节点
-        // Spanning tree的节点为关键帧，共视程度最高的那个关键帧设置为节点在Spanning Tree中的父节点
+        // 2. 得到的局部关键帧的子女关键帧、父母关键帧加入局部关键帧
+        /**
+         * Spanning tree的节点为关键帧，共视程度最高的那个关键帧设置为 节点s 在Spanning Tree中的父节点
+         * 
+         * 对于所有的关键帧而言，其背后实际上有一棵生成树，也就是说：关键帧有对应的父母关键帧与子女关键帧。
+         * 这一步还在对最初的局部关键帧的遍历中，
+         * 首先得到正在遍历的关键帧的子女关键帧 pKF->GetChilds();
+         * 
+         * 遍历这个set，如果有子女关键帧是好的并且还没加入到局部关键帧，那么将其加入局部关键帧
+         * 并且标记（ mnTrackReferenceForFrame 改为当前帧ID）然后退出遍历。
+         * 也就是说，每个初始关键帧同样只能带一个娃（也可能没娃）。
+         * 同理也将正在遍历的关键帧的父母帧保存下来。
+         */
         const set<KeyFrame*> spChilds = pKF->GetChilds();
         for(set<KeyFrame*>::const_iterator sit=spChilds.begin(), send=spChilds.end(); sit!=send; sit++)
         {
@@ -1838,7 +1881,7 @@ void Tracking::UpdateLocalKeyFrames()
                 if(pChildKF->mnTrackReferenceForFrame!=mCurrentFrame.mnId)
                 {
                     // 向 mvpLocalKeyFrames 添加更多的关键帧
-                    mvpLocalKeyFrames.push_back(pChildKF);
+                    mvpLocalKeyFrames.push_back(pChildKF);                  // return
                     pChildKF->mnTrackReferenceForFrame=mCurrentFrame.mnId;
                     break;
                 }
@@ -1851,7 +1894,7 @@ void Tracking::UpdateLocalKeyFrames()
         {
             if(pParent->mnTrackReferenceForFrame!=mCurrentFrame.mnId)
             {
-                mvpLocalKeyFrames.push_back(pParent);
+                mvpLocalKeyFrames.push_back(pParent);                       // return
                 pParent->mnTrackReferenceForFrame=mCurrentFrame.mnId;
                 break;
             }
@@ -1861,9 +1904,10 @@ void Tracking::UpdateLocalKeyFrames()
 
     if(pKFmax)
     {
+        // 最后一步：与当前帧共视地图点最多的初始的局部关键帧（pKFmax指着的）设置为Tracking与当前帧的参考关键帧
         // 更新参考关键帧为有共视的mappoint关键帧共视程度最高（共视的mappoint数量最多）的关键帧
-        mpReferenceKF = pKFmax;
-        mCurrentFrame.mpReferenceKF = mpReferenceKF;
+        mpReferenceKF = pKFmax;                                             // return
+        mCurrentFrame.mpReferenceKF = mpReferenceKF;                        // return
     }
 }
 

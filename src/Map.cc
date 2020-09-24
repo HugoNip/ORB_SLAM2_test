@@ -70,7 +70,7 @@ void Map::EraseKeyFrame(KeyFrame *pKF)
 void Map::SetReferenceMapPoints(const vector<MapPoint *> &vpMPs)
 {
     unique_lock<mutex> lock(mMutexMap);
-    mvpReferenceMapPoints = vpMPs;
+    mvpReferenceMapPoints = vpMPs;      // 地图的参考地图点
 }
 
 

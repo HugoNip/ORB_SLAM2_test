@@ -248,11 +248,11 @@ public:
     cv::Mat mTcw;
 
     // Current and Next Frame id.
-    static long unsigned int nNextId;       // 静态变量，下一个Frame对象id
-    long unsigned int mnId;                 // 当前Frame对象id
+    static long unsigned int nNextId;       // 静态变量，Next Frame id
+    long unsigned int mnId;                 // Current Frame id
 
     // Reference Keyframe.
-    // 参考关键帧，有共视的mappoint关键帧共视程度最高（共视的mappoint数量最多）的关键帧
+    // 参考关键帧，有共视mappoint, 共视程度最高（共视的mappoint数量最多）的关键帧
     KeyFrame* mpReferenceKF;
 
     // Scale pyramid info.
