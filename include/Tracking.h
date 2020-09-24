@@ -273,9 +273,11 @@ protected:
     Initializer* mpInitializer;
 
     // Local Map
-    // 参考关键帧
-    // 在 CreateNewKeyFrame() 中，为当前帧
-    // 在 UpdateLocalKeyFrames() 中，为与当前帧**共视程度最高**的关键帧, it maybe the most robust keyframe
+    /**
+     * Reference KF of Local Map
+     * [Initialize] 在 CreateNewKeyFrame() 中，为当前帧
+     * [Update] 在 UpdateLocalKeyFrames() 中，为与当前帧**共视程度最高**的关键帧, it maybe the most robust keyframe
+     */
     KeyFrame* mpReferenceKF;
     std::vector<KeyFrame*> mvpLocalKeyFrames;
     // mvpLocalKeyFrames 的 所有关键帧的所有匹配的 mappoint集合

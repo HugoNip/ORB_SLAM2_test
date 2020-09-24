@@ -44,11 +44,13 @@ ORBmatcher::ORBmatcher(float nnratio, bool checkOri): mfNNratio(nnratio), mbChec
 
 
 /**
+ * @brief
  * Search matches between Frame keypoints and projected MapPoints. Returns number of matches
  * Used to track the local map (Tracking)
- * local map has mappoints
+ * 
  * 将F里的特征值与 vpMapPoints 进行匹配，通过**投影加速**
  * 返回通过此函数**匹配成功的数量**
+ * 
  * @param F             Frame
  * @param vpMapPoints   projected MapPoints
  * @param th
@@ -60,7 +62,7 @@ int ORBmatcher::SearchByProjection(Frame &F, const vector<MapPoint*> &vpMapPoint
 
     const bool bFactor = th!=1.0;
 
-    // 遍历vpMapPoints
+    // 遍历 vpMapPoints
     for(size_t iMP=0; iMP<vpMapPoints.size(); iMP++)
     {
         MapPoint* pMP = vpMapPoints[iMP];

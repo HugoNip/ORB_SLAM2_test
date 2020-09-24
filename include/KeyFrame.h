@@ -130,7 +130,10 @@ public:
     std::vector<MapPoint*> GetMapPointMatches();
 
 
-    // 返回此keyframe可以看到的mappoint，minObs表示返回的mappoint能被共视的**最小值**
+    /**
+     * @brief
+     * 返回此keyframe可以看到的mappoint，minObs表示返回的mappoint能被共视的**最小值**
+     */
     int TrackedMapPoints(const int &minObs);
 
 

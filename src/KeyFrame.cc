@@ -309,7 +309,10 @@ set<MapPoint*> KeyFrame::GetMapPoints()
 }
 
 
-// 获取被观测相机数大于等于minObs的MapPoint
+/**
+ * @brief
+ * 返回此keyframe可以看到的mappoint，minObs表示返回的mappoint能被共视的**最小值**
+ */
 int KeyFrame::TrackedMapPoints(const int &minObs)
 {
     unique_lock<mutex> lock(mMutexFeatures);

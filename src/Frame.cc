@@ -335,6 +335,10 @@ void Frame::UpdatePoseMatrices()
 }
 
 
+/**
+ * @brief
+ * MapPoint is in frustum of Frame, not Local Map
+ */
 bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
 {
     /**
@@ -393,7 +397,7 @@ bool Frame::isInFrustum(MapPoint *pMP, float viewingCosLimit)
     const int nPredictedLevel = pMP->PredictScale(dist,this);   // 根据深度预测尺度（对应特征点在一层）
 
     // Data used by the tracking
-    // if mappoint is in the view, this mappoint will be used by tracking
+    // if mappoint is in the view of current frame, this mappoint will be used by tracking
     pMP->mbTrackInView = true;
     pMP->mTrackProjX = u;
     pMP->mTrackProjXR = u - mbf*invz; // x coordinate in the right image, has disparity
