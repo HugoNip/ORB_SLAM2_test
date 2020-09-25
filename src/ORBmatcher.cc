@@ -1123,6 +1123,13 @@ int ORBmatcher::Fuse(KeyFrame *pKF, const vector<MapPoint *> &vpMapPoints, const
     return nFused;
 }
 
+
+/** 
+ * @brief
+ * Project MapPoints (vpPoints) into KeyFrame (pKF) using a given Sim3 and search for duplicated MapPoints.
+ * vpPoints 通过 Scw 投影到 pKF ，与pKF中的特征点匹配。如果匹配的pKF中的特征点本身有old matched mappoint，就用vpPoints替代它。
+ * vpReplacePoint 大小与 vpPoints 一致，储存着被替换下来的mappoint
+ */
 int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoints, float th, vector<MapPoint *> &vpReplacePoint)
 {
     // Get Calibration Parameters for later projection
@@ -1148,24 +1155,24 @@ int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoi
     // For each candidate MapPoint project and match
     for(int iMP=0; iMP<nPoints; iMP++)
     {
-        MapPoint* pMP = vpPoints[iMP];
+        MapPoint* pMP = vpPoints[iMP];                                  // candidate MapPoint
 
         // Discard Bad MapPoints and already found
         if(pMP->isBad() || spAlreadyFound.count(pMP))
             continue;
 
         // Get 3D Coords.
-        cv::Mat p3Dw = pMP->GetWorldPos();
+        cv::Mat p3Dw = pMP->GetWorldPos();                              // candidate MapPoint pMP
 
         // Transform into Camera Coords.
-        cv::Mat p3Dc = Rcw*p3Dw+tcw;
+        cv::Mat p3Dc = Rcw*p3Dw+tcw;                                    // candidate MapPoint pMP
 
         // Depth must be positive
         if(p3Dc.at<float>(2)<0.0f)
             continue;
 
         // Project into Image
-        const float invz = 1.0/p3Dc.at<float>(2);
+        const float invz = 1.0/p3Dc.at<float>(2);                       // candidate MapPoint pMP
         const float x = p3Dc.at<float>(0)*invz;
         const float y = p3Dc.at<float>(1)*invz;
 
@@ -1179,16 +1186,20 @@ int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoi
         // Depth must be inside the scale pyramid of the image
         const float maxDistance = pMP->GetMaxDistanceInvariance();
         const float minDistance = pMP->GetMinDistanceInvariance();
-        cv::Mat PO = p3Dw-Ow;
+        cv::Mat PO = p3Dw-Ow;                                           // PO: the vector from MapPoint (p3Dw) to camera center (Ow)
+                                                                        // !!! Get Normal Vector, 关键帧的光心到3D地图点的连线 !!!
         const float dist3D = cv::norm(PO);
 
         if(dist3D<minDistance || dist3D>maxDistance)
             continue;
 
         // Viewing angle must be less than 60 deg
-        cv::Mat Pn = pMP->GetNormal();
+        cv::Mat Pn = pMP->GetNormal();                                  // !!! Get Normal Vector, 关键帧的光心到3D地图点的连线 !!!
+                                                                        // 计算所有观测到该地图的关键帧的观测该点的视角(即关键帧的光心到3D地图点的连线)的平均值
+                                                                        // Pn: 平均观测方向 (void MapPoint::UpdateNormalAndDepth())
+                                                                        // PO: 观测方向 for candidate MapPoint pMP
 
-        if(PO.dot(Pn)<0.5*dist3D)
+        if(PO.dot(Pn)<0.5*dist3D)                                       // cv::norm(Pn) == 1, cos(60) == 0.5; if angle > 60, PO.dot(Pn)<0.5*dist3D
             continue;
 
         // Compute predicted scale level
@@ -1204,7 +1215,7 @@ int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoi
 
         // Match to the most similar keypoint in the radius
 
-        const cv::Mat dMP = pMP->GetDescriptor();
+        const cv::Mat dMP = pMP->GetDescriptor();                       // Descriptor
 
         int bestDist = INT_MAX;
         int bestIdx = -1;
@@ -1216,9 +1227,9 @@ int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoi
             if(kpLevel<nPredictedLevel-1 || kpLevel>nPredictedLevel)
                 continue;
 
-            const cv::Mat &dKF = pKF->mDescriptors.row(idx);
+            const cv::Mat &dKF = pKF->mDescriptors.row(idx);            // Descriptor
 
-            int dist = DescriptorDistance(dMP,dKF);
+            int dist = DescriptorDistance(dMP, dKF);                    // distance
 
             if(dist<bestDist)
             {
@@ -1227,19 +1238,19 @@ int ORBmatcher::Fuse(KeyFrame *pKF, cv::Mat Scw, const vector<MapPoint *> &vpPoi
             }
         }
 
-        // If there is already a MapPoint replace otherwise add new measurement
+        // If there is already a MapPoint, replace, otherwise add new measurement
         if(bestDist<=TH_LOW)
         {
             MapPoint* pMPinKF = pKF->GetMapPoint(bestIdx);
-            if(pMPinKF)
+            if(pMPinKF)                                                 // there is already a MapPoint
             {
                 if(!pMPinKF->isBad())
-                    vpReplacePoint[iMP] = pMPinKF;
+                    vpReplacePoint[iMP] = pMPinKF;                      // storge this existed MapPoint
             }
             else
             {
-                pMP->AddObservation(pKF,bestIdx);
-                pKF->AddMapPoint(pMP,bestIdx);
+                pMP->AddObservation(pKF, bestIdx);                       // add new measurement
+                pKF->AddMapPoint(pMP, bestIdx);                          // add new measurement
             }
             nFused++;
         }

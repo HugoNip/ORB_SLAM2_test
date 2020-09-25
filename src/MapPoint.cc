@@ -43,6 +43,11 @@ MapPoint::MapPoint(const cv::Mat &Pos, KeyFrame *pRefKF, Map* pMap):
     mnId=nNextId++;
 }
 
+
+/**
+ * @brief
+ * get the information of normal vector
+ */
 MapPoint::MapPoint(const cv::Mat &Pos, Map* pMap, Frame* pFrame, const int &idxF):
     mnFirstKFid(-1), mnFirstFrame(pFrame->mnId), nObs(0), mnTrackReferenceForFrame(0), mnLastFrameSeen(0),
     mnBALocalForKF(0), mnFuseCandidateForKF(0),mnLoopPointForKF(0), mnCorrectedByKF(0),
@@ -51,7 +56,7 @@ MapPoint::MapPoint(const cv::Mat &Pos, Map* pMap, Frame* pFrame, const int &idxF
 {
     Pos.copyTo(mWorldPos);
     cv::Mat Ow = pFrame->GetCameraCenter();
-    mNormalVector = mWorldPos - Ow;
+    mNormalVector = mWorldPos - Ow;         // mWorldPos: Position in absolute coordinates
     mNormalVector = mNormalVector/cv::norm(mNormalVector);
 
     cv::Mat PC = Pos - Ow;
@@ -83,6 +88,11 @@ cv::Mat MapPoint::GetWorldPos()
     return mWorldPos.clone();
 }
 
+
+/**
+ * @brief
+ * GetNormal vector of MapPoint
+ */
 cv::Mat MapPoint::GetNormal()
 {
     unique_lock<mutex> lock(mMutexPos);
@@ -230,6 +240,7 @@ MapPoint* MapPoint::GetReplaced()
 
 
 /**
+ * @brief
  * 该函数的作用是将当前 MapPoint(this)，替换成 pMP，
  * 这主要是因为在使用闭环时，完成 闭环优化 以后，需要 调整 MapPoint 和 KeyFrame，建立新的关系
  * 具体流程是循环遍历所有的 observation/KeyFrame ，判断此 MapPoint 是否在 该KeyFrame 中，
@@ -260,7 +271,6 @@ void MapPoint::Replace(MapPoint* pMP)
     }
 
     // For all observations of this MapPoint
-    // 
     for(map<KeyFrame*,size_t>::iterator mit=obs.begin(), mend=obs.end(); mit!=mend; mit++)
     {
         // Replace measurement in keyframe
@@ -437,15 +447,16 @@ bool MapPoint::IsInKeyFrame(KeyFrame *pKF)
 
 
 /**
+ * @brief
  * For one MapPoint
  * 由于图像提取 描述子 是使用 金字塔 分层提取，所以计算法向量和深度可以知道
- * 该 MapPoint 在对应的关键帧的金字塔哪一层可以提取到。
+ * 该 MapPoint 在对应的关键帧的金字塔哪一层可以提取到
  * 明确了目的，下一步就是方法问题，所谓的 法向量 ，就是说 相机光心 指向地图点的方向，
  * 计算这个方向方法很简单，只需要用 地图点的三维坐标 减去 相机光心的三维坐标 就可以
  */
 void MapPoint::UpdateNormalAndDepth()
 {
-    map<KeyFrame*,size_t> observations; // observations[KF] = idx of MapPoint
+    map<KeyFrame*,size_t> observations;                     // observations[KF] = idx of MapPoint
     KeyFrame* pRefKF;
     cv::Mat Pos;
     {
@@ -463,17 +474,21 @@ void MapPoint::UpdateNormalAndDepth()
 
     cv::Mat normal = cv::Mat::zeros(3,1,CV_32F);
     int n=0;
+
     // one mappoint can be observed by many keyframes
     // So, for each observation/keyframe, calculate the normal
     for(map<KeyFrame*,size_t>::iterator mit=observations.begin(), mend=observations.end(); mit!=mend; mit++)
     {
-        KeyFrame* pKF = mit->first;
-        cv::Mat Owi = pKF->GetCameraCenter();
-        // normal vector, observation direction
-        // camera center points to mappoint
-        // 观测点坐标 减去 关键帧中 相机光心的坐标 就是 观测方向
-        // 也就是说相机光心指向地图点
+        KeyFrame* pKF = mit->first;                         // KeyFrame
+        cv::Mat Owi = pKF->GetCameraCenter();               // camera center
+        /** 
+         * normal vector, observation direction
+         * camera center points to mappoint
+         * 观测点坐标 减去 关键帧中 相机光心的坐标 就是 观测方向
+         * 也就是说相机光心指向地图点
+         */
         cv::Mat normali = mWorldPos - Owi;
+
         // 对其进行 归一化 后 相加
         normal = normal + normali/cv::norm(normali);
         n++;
@@ -485,18 +500,20 @@ void MapPoint::UpdateNormalAndDepth()
     const float levelScaleFactor =  pRefKF->mvScaleFactors[level];
     const int nLevels = pRefKF->mnScaleLevels;
 
-    // 深度范围 [mfMinDistance, mfMaxDistance]
-    // 地图点到参考帧（只有一帧）相机中心距离 乘上 参考帧中描述子获取金字塔放大尺度，得到最大距离 mfMaxDistance
-    // 最大距离 除以 整个金字塔最高层 的 放大尺度 得到 最小距离 mfMinDistance
-    // 通常说来，距离较近的地图点，将在金字塔较高的地方提出，
-    // 距离较远的地图点，在金字塔层数较低的地方提取出（金字塔层数越低，分辨率越高，才能识别出远点）
-    // 因此，通过地图点的信息（主要对应描述子），我们可以获得该地图点对应的金字塔层级
-    // 从而预测该地图点在什么范围内能够被观测到
+    /**
+     * 深度范围 [mfMinDistance, mfMaxDistance]
+     * 地图点到参考帧（只有一帧）相机中心距离 乘上 参考帧中描述子获取金字塔放大尺度，得到最大距离 mfMaxDistance
+     * 最大距离 除以 整个金字塔最高层 的 放大尺度 得到 最小距离 mfMinDistance
+     * 通常说来，距离较近的地图点，将在金字塔较高的地方提出，
+     * 距离较远的地图点，在金字塔层数较低的地方提取出（金字塔层数越低，分辨率越高，才能识别出远点）
+     * 因此，通过地图点的信息（主要对应描述子），我们可以获得该地图点对应的金字塔层级
+     * 从而预测该地图点在什么范围内能够被观测到
+     */
     {
         unique_lock<mutex> lock3(mMutexPos);
         mfMaxDistance = dist*levelScaleFactor;
         mfMinDistance = mfMaxDistance/pRefKF->mvScaleFactors[nLevels-1];
-        mNormalVector = normal/n; // updated normal vector
+        mNormalVector = normal/n;                       // updated mean normal vector
     }
 }
 

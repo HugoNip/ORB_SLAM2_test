@@ -191,8 +191,10 @@ void LocalMapping::ProcessNewKeyFrame()
                 {
                     // 让mappoint知道自己可以被哪些keyframe看到
                     pMP->AddObservation(mpCurrentKeyFrame, i);
+
                     // 更新此mappoint参考帧光心到mappoint平均观测方向以及观测距离范围
                     pMP->UpdateNormalAndDepth();
+                    
                     // 在此mappoint能被看到的特征点中找出最能代表此mappoint的描述子
                     pMP->ComputeDistinctiveDescriptors();
                 }
@@ -712,6 +714,18 @@ void LocalMapping::RequestStop()
     mbAbortBA = true;
 }
 
+
+/**
+ * @brief
+ * void LoopClosing::CorrectLoop()
+ * {
+ *      cout << "Loop detected!" << endl;
+ *      // Send a stop signal to Local Mapping
+ *      // Avoid new keyframes are inserted while correcting the loop
+ *      mpLocalMapper->RequestStop();
+ *      ......
+ * }
+ */
 bool LocalMapping::Stop()
 {
     unique_lock<mutex> lock(mMutexStop);

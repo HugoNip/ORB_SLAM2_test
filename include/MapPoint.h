@@ -167,8 +167,14 @@ protected:
      // mObservations->second: idx of MapPoint
      std::map<KeyFrame*,size_t> mObservations;
 
+
      // Mean viewing direction
+     /**
+      * 计算所有观测到该地图的关键帧的观测该点的视角(即关键帧的光心到3D地图点的连线)的平均值
+      * 平均观测方向
+      */
      cv::Mat mNormalVector;
+
 
      // Best descriptor to fast matching
      cv::Mat mDescriptor;

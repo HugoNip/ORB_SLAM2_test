@@ -41,6 +41,7 @@ class LocalMapping;
 class KeyFrameDatabase;
 
 /**
+ * @brief
  * LoopClosing是专门负责做闭环的类，它的主要功能就是检测闭环，计算闭环帧的相对位姿病以此做闭环修正
  */
 class LoopClosing
@@ -86,13 +87,20 @@ public:
 
 protected:
 
-    // 判断mlpLoopKeyFrameQueue是否非空
+    /** 
+     * @brief
+     * 判断mlpLoopKeyFrameQueue是否非空
+     */
     bool CheckNewKeyFrames();
 
-    // 获取候选闭环关键帧放入 mvpEnoughConsistentCandidates
+    /** 
+     * @brief
+     * 获取候选闭环关键帧放入 mvpEnoughConsistentCandidates
+     */
     bool DetectLoop();
 
     /**
+     * @brief
      * 1. 候选帧和当前关键帧通过Bow加速描述子的**匹配**，剔除特征点匹配数少的闭环候选帧
      * 2. 利用RANSAC粗略地计算出当前帧与闭环帧的**Sim3**，选出较好的那个sim3，确定闭环帧
      * 2. 根据确定的闭环帧和对应的Sim3，对3D点进行投影找到更多**匹配**，通过优化的方法计算更精确的**Sim3**
@@ -101,6 +109,7 @@ protected:
     bool ComputeSim3();
 
     /**
+     * @brief
      * 针对CorrectedPosesMap里的**关键帧**，mvpLoopMapPoints投影到这个关键帧上与其特征点并进行**匹配**
      * 如果**匹配成功的特征点**本身就有mappoint**，就用mvpLoopMapPoints里匹配的点**替换**，替换下来的mappoint则**销毁**
      * @param CorrectedPosesMap 表示和当前帧在covisibility相连接的keyframe及其修正的位姿

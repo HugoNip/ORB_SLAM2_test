@@ -886,6 +886,7 @@ void Tracking::CreateInitialMapMonocular()
         // each mappoint has its own descriptor (the best one)
         // 找出最能代表此mappoint的**描述子**
         pMP->ComputeDistinctiveDescriptors();                   // Descriptor
+        
         // 更新此mappoint参考帧光心到mappoint**平均观测方向**以及**观测距离范围**
         pMP->UpdateNormalAndDepth();
 

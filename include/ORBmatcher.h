@@ -153,9 +153,12 @@ public:
     int Fuse(KeyFrame* pKF, const vector<MapPoint *> &vpMapPoints, const float th=3.0);
 
 
-    // Project MapPoints into KeyFrame using a given Sim3 and search for duplicated MapPoints.
-    // vpPoints通过Scw投影到pKF，与pKF中的特征点匹配。如果匹配的pKF中的特征点本身有old matched mappoint，就用vpPoints替代它。
-    // vpReplacePoint大小与vpPoints一致，储存着被替换下来的mappoint
+    /** 
+     * @brief
+     * Project MapPoints into KeyFrame using a given Sim3 and search for duplicated MapPoints.
+     * vpPoints通过Scw投影到pKF，与pKF中的特征点匹配。如果匹配的pKF中的特征点本身有old matched mappoint，就用vpPoints替代它。
+     * vpReplacePoint大小与vpPoints一致，储存着被替换下来的mappoint
+     */
     int Fuse(KeyFrame* pKF, cv::Mat Scw, const std::vector<MapPoint*> &vpPoints, float th, vector<MapPoint *> &vpReplacePoint);
 
 
